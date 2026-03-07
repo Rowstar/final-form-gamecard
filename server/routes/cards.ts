@@ -1,0 +1,1437 @@
+import express from "express";
+import multer from "multer";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
+import { v4 as uuidv4 } from "uuid";
+import jwt from "jsonwebtoken";
+import db from "../db.js";
+import { GoogleGenAI, Type } from "@google/genai";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key-change-me";
+
+const uploadDir = path.join(__dirname, "..", "..", "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({ storage: storage });
+
+// Middleware to check auth
+const authenticate = (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: "Invalid token" });
+  }
+};
+
+import crypto from "crypto";
+
+function generateShortId() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const p1 = Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const p2 = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `SG-${p1}-${p2}`;
+}
+
+router.post("/generate", authenticate, async (req: any, res: any) => {
+  try {
+    const { theme, traits, intent, useCredit, displayOptions, photo, artStyle, customText, gender, exaggeration, humor } = req.body || {};
+
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id) as any;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const freeGenerationsCount = db.prepare(`
+      SELECT COUNT(*) as count FROM cards 
+      WHERE user_id = ? AND date(created_at) = date('now') AND is_premium = 0
+    `).get(req.user.id) as any;
+
+    const hasFreeGenerations = (freeGenerationsCount?.count || 0) < 2;
+
+    let isPremium = false;
+    if (useCredit) {
+      if (user.credits <= 0) {
+        return res.status(400).json({ error: "Not enough credits" });
+      }
+      isPremium = true;
+    } else {
+      if (!hasFreeGenerations) {
+        return res.status(400).json({ error: "No free generations left today. Please use a credit." });
+      }
+      isPremium = false;
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey.trim() === "") {
+      console.error("API Key is not set or is empty");
+      return res.status(500).json({ error: "API Key is not set. Please configure GEMINI_API_KEY." });
+    }
+
+    // Determine Aesthetic Style
+    const rand = Math.random();
+    let aestheticStyle = "rare"; // Keep DB values but treat as style
+
+    // Style distribution
+    if (rand < 0.03) {
+      aestheticStyle = "mythic";
+    } else if (rand < 0.15) {
+      aestheticStyle = "legendary";
+    } else if (rand < 0.45) {
+      aestheticStyle = "epic";
+    } else {
+      aestheticStyle = "rare";
+    }
+
+    // Initialize Gemini
+    const ai = new GoogleGenAI({ apiKey });
+
+    let facialFeatures = "";
+    if (photo) {
+      try {
+        let mimeType = "image/jpeg";
+        let base64Data = photo;
+        if (photo.startsWith("data:")) {
+          const matches = photo.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+            mimeType = matches[1];
+            base64Data = matches[2];
+          }
+        }
+        const visionResponse = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: [
+            { text: "Analyze this face. Describe the facial architecture, defining features, expression, and hairstyle in 2-3 concise sentences. Focus solely on physical facial appearance, ignoring clothing and background. This description will be used to reconstruct a character likeness." },
+            { inlineData: { data: base64Data, mimeType } }
+          ]
+        });
+        facialFeatures = visionResponse.text || "";
+        console.log("Extracted facial features for card generation.");
+      } catch (e) {
+        console.error("Photo analysis failed:", e);
+      }
+    }
+
+    let cardData: any = {};
+    let dnaHash = "";
+    let attempts = 0;
+    const maxAttempts = 10;
+    let success = false;
+    let currentTheme = theme || "Mystical";
+
+    while (attempts < maxAttempts && !success) {
+      attempts++;
+
+      let customOverrides = ``;
+      if (theme) customOverrides += `- MUST use the EXACT Avatar Name provided: "${theme}"\n`;
+      if (customText?.weapon) customOverrides += `- MUST use the EXACT Signature Weapon Name provided: "${customText.weapon}"\n`;
+      if (customText?.ultimate) customOverrides += `- MUST use the EXACT Ultimate Ability Name provided: "${customText.ultimate}"\n`;
+      if (customText?.quote) customOverrides += `- MUST use the EXACT Flavor Quote provided: "${customText.quote}"\n`;
+      if (customText?.passives) customOverrides += `- Incorporate these concepts into the Passives: "${customText.passives}"\n`;
+      if (customText?.resistances) customOverrides += `- Incorporate these concepts into the Weaknesses/Resistances: "${customText.resistances}"\n`;
+
+      const prompt = `
+        You are generating a "Final Form" / "Ultimate Boss Form" game card character based on these inputs:
+        - Avatar Name: ${theme || "Unknown"}
+        - Gender / Presentation: ${gender || "Not specified"}
+        - Alignment / Vibe: ${(traits || []).join(", ") || "Balanced"}
+        - Intent / Description: ${intent || "A powerful new form."}
+        - Art Style Theme: ${artStyle || "Premium Digital Art"}
+        - Exaggeration Level: ${exaggeration || 5}/10 (1=Realistic, 10=God-Tier Absurdly Overscaled Powers)
+        - Humor / Satire Level: ${humor || 5}/10 (1=Grimdark/Serious, 10=Troll/Parody/Silly)
+        - Aesthetic Style: ${aestheticStyle}
+        - Final Boss Mode: ${useCredit ? "Yes" : "No"}
+
+        USER CUSTOM OVERRIDES:
+        ${customOverrides}
+
+        Generate the character details. The output must be strict JSON.
+        
+        RULES:
+        - name: The dominant avatar name (max 22 chars).
+        - animalBase: The primary species or form influence (e.g. "Cosmic Human", "Demon Lord", "Mecha Dragon", "Celestial Seraph"). Be creative but descriptive.
+        - animalForm: The Archetype/Title of this form (e.g. "Infernal Tyrant", "Apex Predator", "Reality Weaver").
+        - energyCore: The primary element or energy source (e.g. "Void Matter", "Holy Fire", "Quantum Lightning").
+        - signatureWeapon: The name of their primary weapon or visual artifact (e.g. "Blade of the Cosmos", "Void Scepter"). MUST be present.
+        - archetype: The class or combat role (e.g. "Vanguard", "Spellblade", "Assassin", "Juggernaut").
+        - palette: 2-3 dominant colors that fit the vibe.
+        - poseVariant: How they should be posed (e.g. "Floating ominously", "Sword drawn, battle-ready", "Sitting on a throne of debris").
+        - composition: Must be one of: "Centered floating", "Dynamic action pose", "Intimidating low angle", "Heroic standing".
+        - ultimateAbility.name: An epic, evocative name for their ultimate skill.
+        - ultimateAbility.description: A dramatic combat/lore description of what this ability does and its devastating or empowering effect.
+        - guidanceLine: A bad-ass or mysterious flavor text / quote spoken by the character.
+        - stats: Generate an internal object with 6 RPG stats scaled 1-100 based on the archetype and vibe. Fields MUST BE: Power, Speed, Defense, Intelligence, Presence, Energy.
+        - passives: Generate an array of 2 short strings describing passive abilities.
+        - weakness: Generate a 1-3 word conceptual weakness (e.g. "Hubris", "Holy light", "Slow windup").
+        - resistances: Generate a 1-3 word conceptual resistance (e.g. "Immune to mind control", "Absorbs fire").
+        
+        - Tone: Epic, Game-like, Trading Card, Dramatic, Badass, Powerful, Premium.
+      `;
+
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                animalBase: { type: Type.STRING },
+                animalForm: { type: Type.STRING },
+                energyCore: { type: Type.STRING },
+                archetype: { type: Type.STRING },
+                signatureWeapon: { type: Type.STRING },
+                palette: { type: Type.STRING },
+                poseVariant: { type: Type.STRING },
+                composition: { type: Type.STRING },
+                ultimateAbility: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    description: { type: Type.STRING }
+                  },
+                  required: ["name", "description"]
+                },
+                stats: {
+                  type: Type.OBJECT,
+                  properties: {
+                    Power: { type: Type.INTEGER },
+                    Speed: { type: Type.INTEGER },
+                    Defense: { type: Type.INTEGER },
+                    Intelligence: { type: Type.INTEGER },
+                    Presence: { type: Type.INTEGER },
+                    Energy: { type: Type.INTEGER }
+                  },
+                  required: ["Power", "Speed", "Defense", "Intelligence", "Presence", "Energy"]
+                },
+                passives: { type: Type.ARRAY, items: { type: Type.STRING } },
+                weakness: { type: Type.STRING },
+                resistances: { type: Type.STRING },
+                guidanceLine: { type: Type.STRING }
+              },
+              required: ["name", "animalBase", "animalForm", "energyCore", "archetype", "signatureWeapon", "palette", "poseVariant", "composition", "ultimateAbility", "stats", "passives", "weakness", "resistances", "guidanceLine"]
+            }
+          }
+        });
+      } catch (e: any) {
+        console.error("Text generation failed:", e);
+        if (attempts === maxAttempts) throw new Error(`Text generation failed: ${e.message}`);
+        continue;
+      }
+
+      try {
+        let text = response.text || "{}";
+        text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        cardData = JSON.parse(text);
+      } catch (e) {
+        console.error("Failed to parse card data JSON:", response?.text);
+        if (attempts === maxAttempts) cardData = {};
+        continue;
+      }
+
+      if (!cardData.name || !cardData.animalBase) continue;
+
+      // Hard Locks
+      const nameExists = db.prepare("SELECT 1 FROM cards WHERE identity = ?").get(cardData.name);
+      if (nameExists) continue;
+
+      const abilityExists = db.prepare("SELECT 1 FROM cards WHERE ultimate_title = ?").get(cardData.ultimateAbility?.name);
+      if (abilityExists) continue;
+
+      dnaHash = `${aestheticStyle}-${cardData.animalBase}-${cardData.energyCore}-${cardData.archetype}-${cardData.palette}-${cardData.poseVariant}`;
+      const dnaExists = db.prepare("SELECT 1 FROM cards WHERE dna_hash = ?").get(dnaHash);
+      if (dnaExists) continue;
+
+      success = true;
+    }
+
+    if (!success) {
+      console.warn("Failed to generate a completely unique card after 10 attempts, using last generated data.");
+    }
+
+    const cardId = uuidv4();
+    const shortId = generateShortId();
+    let imageUrl = "";
+
+    const stats = {
+      aestheticStyle: aestheticStyle,
+      animalForm: cardData.animalForm, // we'll use this for Subtitle/Title
+      ultimateAbility: cardData.ultimateAbility,
+      guidanceLine: cardData.guidanceLine, // Flavor text
+      rpgStats: cardData.stats,
+      signatureWeapon: cardData.signatureWeapon,
+      passives: cardData.passives,
+      resistances: cardData.resistances,
+      weakness: cardData.weakness,
+      displayOptions: displayOptions,
+      inputs: { theme, gender, traits, intent, useCredit, artStyle, customText }
+    };
+
+    // Generate Image using Gemini
+    try {
+      // Rebuild conditional text block
+      const options = displayOptions || { stats: false, ultimate: false, passives: false, resistances: false, quote: false, weapon: false };
+
+      let textSystemPrompt = `TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):\n`;
+      textSystemPrompt += `[CARD NAME – dominant epic cinematic font]: ${cardData.name}\n`;
+      textSystemPrompt += `[SUBTITLE – below name, sleek font]: ${cardData.animalForm}\n`;
+
+      if (options.ultimate) {
+        textSystemPrompt += `[WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:\n`;
+        if (customText?.ultimate?.trim()) {
+          textSystemPrompt += `[Header]: ${customText.ultimate}\n[Description Text]: ${cardData.ultimateAbility?.description || 'A devastating signature power.'}\n`;
+        } else if (cardData.ultimateAbility) {
+          textSystemPrompt += `[Header]: ${cardData.ultimateAbility.name}\n[Description Text]: ${cardData.ultimateAbility.description}\n`;
+        }
+      }
+
+      if (options.weapon) {
+        if (customText?.weapon?.trim()) {
+          textSystemPrompt += `[WEAPON DISPLAY LABEL - sleek font above stats]: Weapon: ${customText.weapon}\n`;
+        } else if (cardData.signatureWeapon) {
+          textSystemPrompt += `[WEAPON DISPLAY LABEL - sleek font above stats]: Weapon: ${cardData.signatureWeapon}\n`;
+        }
+      }
+
+      if (options.stats) {
+        if (customText?.stats?.trim()) {
+          textSystemPrompt += `[COMBAT STATS GRID]: ${customText.stats}\n`;
+        } else if (cardData.stats) {
+          textSystemPrompt += `[COMBAT STATS GRID - 6 small structured UI meters/numbers]: Power ${cardData.stats.Power}, Speed ${cardData.stats.Speed}, Defense ${cardData.stats.Defense}, Intel ${cardData.stats.Intelligence}, Aura ${cardData.stats.Presence}, Energy ${cardData.stats.Energy}\n`;
+        }
+      }
+
+      if (options.passives) {
+        if (customText?.passives?.trim()) {
+          textSystemPrompt += `[PASSIVES - compact bullet list]: ${customText.passives}\n`;
+        } else if (cardData.passives && cardData.passives.length > 0) {
+          textSystemPrompt += `[PASSIVES - compact bullet list]: ${cardData.passives.join(" • ")}\n`;
+        }
+      }
+
+      if (options.resistances) {
+        if (customText?.resistances?.trim()) {
+          textSystemPrompt += `[AFFINITIES]: ${customText.resistances}\n`;
+        } else if (cardData.resistances || cardData.weakness) {
+          textSystemPrompt += `[AFFINITIES]: `;
+          if (cardData.resistances) textSystemPrompt += `Resists ${cardData.resistances} `;
+          if (cardData.weakness) textSystemPrompt += `| Weak to ${cardData.weakness}\n`;
+        }
+      }
+
+      if (options.quote) {
+        if (customText?.quote?.trim()) {
+          textSystemPrompt += `[Flavor Text / Quote – italics at the very bottom]: "${customText.quote}"\n`;
+        } else if (cardData.guidanceLine) {
+          textSystemPrompt += `[Flavor Text / Quote – italics at the very bottom]: "${cardData.guidanceLine}"\n`;
+        }
+      }
+
+      const isBoss = useCredit ? "ULTIMATE FINAL BOSS MODE ENABLED. Maximum visual intimidation and dramatic dominance in the composition. Strip away standard borders, make the character break out of the frame." : "";
+
+      const imagePrompt = `A premium, full-art game trading card featuring an Ultimate/Final Form Character.
+Theme: ${(traits || []).join(", ") || "Epic"}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
+Art Style Direction: ${artStyle || "Premium Digital Art"}.
+Exaggeration Scale: ${exaggeration || 5}/10. ${exaggeration >= 8 ? "PROPORTIONS AND ENERGY SHOULD BE ABSURDLY MASSIVE AND GOD-TIER." : "Keep proportions somewhat grounded."}
+Humor/Satire Scale: ${humor || 5}/10. ${humor >= 8 ? "RENDER WITH A PARODY, SILLY, OR HIGHLY MEME-LIKE AESTHETIC WHILE MAINTAINING HIGH QUALITY." : "Render with serious epic drama."}
+Species/Form: ${cardData.animalBase}.
+Energy Core (Element): ${cardData.energyCore}.
+Class/Archetype: ${cardData.archetype}.
+Signature Weapon: ${cardData.signatureWeapon || "Not specified, hands free"}. MAKE SURE THEY ARE VISUALLY HOLDING OR DISPLAYING THIS WEAPON IF PROVIDED.
+Palette: ${cardData.palette}.
+Pose: ${cardData.poseVariant}.
+Composition: ${cardData.composition}.
+${facialFeatures ? `Facial Features & Character Likeness (CRITICAL MATCH): ${facialFeatures}\nThe character portrayed MUST heavily resemble this physical facial description.\n` : ""}
+${isBoss}
+
+STRICT CARD GENERATION RULES:
+- Strict vertical 2:3 portrait format.
+- Card fills entire frame. No outer margin. No extended cinematic background. No horizontal expansion.
+- Border must be continuous and structural. No inset margins. No decorative partial frames. Edge-flush perimeter. Structural perimeter must be fully connected.
+
+AESTHETIC STYLE LOCK:
+- The card must feel Legendary or Mythic in quality.
+- Use the palette (${cardData.palette}) and theme (${currentTheme}) to determine the border and energy colors.
+- Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
+
+${textSystemPrompt}
+
+No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-rare holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
+
+      const imageResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: imagePrompt }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "3:4"
+          }
+        }
+      });
+
+      let generatedImageBase64 = null;
+      for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          generatedImageBase64 = part.inlineData.data;
+          break;
+        }
+      }
+
+      if (generatedImageBase64) {
+        const generatedFilename = `summon-${Date.now()}-${Math.round(Math.random() * 1e9)}.png`;
+        const generatedFilePath = path.join(uploadDir, generatedFilename);
+        fs.writeFileSync(generatedFilePath, Buffer.from(generatedImageBase64, 'base64'));
+        imageUrl = `/uploads/${generatedFilename}`;
+      }
+    } catch (imgError) {
+      console.error("Image generation failed:", imgError);
+    }
+
+    // Determine border based on theme
+    let borderId = "gilded_relic";
+    if (aestheticStyle === "mythic") borderId = "obsidian_prism";
+    else if (aestheticStyle === "legendary") borderId = "gilded_relic";
+    else if (aestheticStyle === "epic") borderId = "arcane_sapphire";
+    else borderId = "emerald_royal";
+
+    // Create Verification Hash
+    const hashContent = JSON.stringify(cardData) + shortId;
+    const verificationHash = crypto.createHash('sha256').update(hashContent).digest('hex');
+
+    // Deduct credit if premium
+    if (isPremium) {
+      db.prepare("UPDATE users SET credits = credits - 1 WHERE id = ?").run(req.user.id);
+    }
+
+    // Save card
+    db.prepare(`
+      INSERT INTO cards (id, user_id, image_url, identity, strengths, signature_move, weakness, stats, border_id, border_lock_mode, tier, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash, is_premium)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      cardId,
+      req.user.id,
+      imageUrl,
+      cardData.name || "Unknown Avatar",
+      cardData.animalForm || "Unknown Form",
+      cardData.ultimateAbility?.name || "Unknown Ability",
+      cardData.weakness || "",
+      JSON.stringify(stats),
+      borderId,
+      "ai",
+      aestheticStyle,
+      shortId,
+      verificationHash,
+      cardData.animalBase || "",
+      currentTheme,
+      cardData.energyCore || "",
+      cardData.archetype || "",
+      cardData.palette || "",
+      cardData.poseVariant || "",
+      cardData.composition || "",
+      cardData.ultimateAbility?.name || "",
+      dnaHash,
+      isPremium ? 1 : 0
+    );
+
+    res.json({ id: cardId, shortId: shortId });
+  } catch (error: any) {
+    console.error("Generate error:", error);
+    console.error("Error details:", error.message, error.stack);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+router.get("/verify/:shortId", (req: any, res: any) => {
+  try {
+    const { shortId } = req.params;
+
+    const card = db.prepare(`
+      SELECT c.*, u.email 
+      FROM cards c 
+      JOIN users u ON c.user_id = u.id 
+      WHERE c.short_id = ?
+    `).get(shortId) as any;
+
+    if (!card) {
+      return res.status(404).json({ error: "Guide not found or unverified" });
+    }
+
+    try {
+      card.stats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats;
+    } catch (e) {
+      console.error("Failed to parse stats for card", card.id);
+    }
+
+    res.json({
+      verified: true,
+      guide: {
+        id: card.id,
+        shortId: card.short_id,
+        name: card.identity,
+        animalForm: card.strengths,
+        aestheticStyle: card.tier,
+        createdAt: card.created_at,
+        owner: card.email.split('@')[0],
+        verificationHash: card.verification_hash
+      }
+    });
+  } catch (error) {
+    console.error("Verification error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/my-cards", authenticate, (req: any, res: any) => {
+  try {
+    const cards = db.prepare("SELECT * FROM cards WHERE user_id = ? ORDER BY created_at DESC").all(req.user.id);
+    const parsedCards = cards.map((card: any) => {
+      try {
+        card.stats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats;
+      } catch (e) {
+        console.error("Failed to parse stats for card", card.id);
+      }
+      if (card.legendary_data) {
+        try {
+          card.legendary_data = typeof card.legendary_data === 'string' ? JSON.parse(card.legendary_data) : card.legendary_data;
+        } catch (e) { }
+      }
+      if (card.custom_text_overrides) {
+        try {
+          card.custom_text_overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides;
+        } catch (e) { }
+      }
+      return card;
+    });
+    res.json({ cards: parsedCards });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/user/:userId", (req: any, res: any) => {
+  try {
+    const { userId } = req.params;
+
+    const user = db.prepare("SELECT id, email FROM users WHERE id = ?").get(userId) as any;
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const cards = db.prepare("SELECT * FROM cards WHERE user_id = ? ORDER BY created_at DESC").all(userId);
+    const parsedCards = cards.map((card: any) => {
+      try {
+        card.stats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats;
+      } catch (e) {
+        console.error("Failed to parse stats for card", card.id);
+      }
+      if (card.legendary_data) {
+        try {
+          card.legendary_data = typeof card.legendary_data === 'string' ? JSON.parse(card.legendary_data) : card.legendary_data;
+        } catch (e) { }
+      }
+      if (card.custom_text_overrides) {
+        try {
+          card.custom_text_overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides;
+        } catch (e) { }
+      }
+      return card;
+    });
+
+    res.json({ user: { id: user.id, email: user.email }, cards: parsedCards });
+  } catch (error) {
+    console.error("Fetch user cards error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/:id", (req: any, res: any) => {
+  try {
+    const card = db.prepare("SELECT * FROM cards WHERE id = ? OR short_id = ?").get(req.params.id, req.params.id) as any;
+    if (!card) {
+      return res.status(404).json({ error: "Card not found" });
+    }
+
+    // Parse stats
+    try {
+      card.stats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats;
+    } catch (e) {
+      console.error("Failed to parse stats for card", card.id);
+    }
+    if (card.legendary_data) {
+      try {
+        card.legendary_data = typeof card.legendary_data === 'string' ? JSON.parse(card.legendary_data) : card.legendary_data;
+      } catch (e) { }
+    }
+    if (card.custom_text_overrides) {
+      try {
+        card.custom_text_overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides;
+      } catch (e) { }
+    }
+    res.json({ card });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/:id/upgrade", authenticate, async (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const userId = req.user.id;
+
+    const card = db.prepare("SELECT * FROM cards WHERE (id = ? OR short_id = ?) AND user_id = ?").get(cardId, cardId, userId) as any;
+    if (!card) {
+      return res.status(404).json({ error: "Card not found or unauthorized" });
+    }
+
+    if (card.is_premium) {
+      return res.status(400).json({ error: "Card is already premium" });
+    }
+
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
+    if (!user || user.credits < 1) {
+      return res.status(400).json({ error: "Not enough credits" });
+    }
+
+    db.prepare("BEGIN TRANSACTION").run();
+    try {
+      db.prepare("UPDATE users SET credits = credits - 1 WHERE id = ?").run(userId);
+      db.prepare("UPDATE cards SET is_premium = 1 WHERE id = ?").run(card.id);
+      db.prepare("COMMIT").run();
+      res.json({ success: true });
+    } catch (e) {
+      db.prepare("ROLLBACK").run();
+      throw e;
+    }
+  } catch (error) {
+    console.error("Upgrade error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/forge", authenticate, async (req: any, res: any) => {
+  const { cardIds, type } = req.body;
+  const userId = req.user.id;
+
+  if (!cardIds || !Array.isArray(cardIds) || cardIds.length === 0) {
+    return res.status(400).json({ error: "Invalid card IDs" });
+  }
+
+  if (type === "merge" && cardIds.length !== 2) {
+    return res.status(400).json({ error: "Merge requires exactly 2 cards" });
+  }
+
+  if (type === "reforge" && cardIds.length !== 1) {
+    return res.status(400).json({ error: "Reforge requires exactly 1 card" });
+  }
+
+  try {
+    const cards = cardIds.map(id => db.prepare("SELECT * FROM cards WHERE id = ?").get(id) as any);
+    if (cards.some(c => !c || c.user_id !== userId)) {
+      return res.status(403).json({ error: "Unauthorized or card not found" });
+    }
+
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
+    const cost = type === "merge" ? 3 : 2;
+    if (!user || user.credits < cost) {
+      return res.status(400).json({ error: `Not enough credits. ${cost} credits required.` });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
+
+    let aiData: any = {};
+    let dnaHash = "";
+    let attempts = 0;
+    const maxAttempts = 10;
+    let success = false;
+
+    // Aesthetic Style (Determine early for DNA hash)
+    const styleRoll = Math.random() * 100;
+    let aestheticStyle = "rare";
+    let borderId = "emerald_royal";
+
+    if (styleRoll > 95) {
+      aestheticStyle = "mythic";
+      borderId = "obsidian_prism";
+    } else if (styleRoll > 75) {
+      aestheticStyle = "legendary";
+      borderId = "gilded_relic";
+    } else if (styleRoll > 40) {
+      aestheticStyle = "epic";
+      borderId = "arcane_sapphire";
+    } else {
+      aestheticStyle = "rare";
+      borderId = "emerald_royal";
+    }
+
+    while (attempts < maxAttempts && !success) {
+      attempts++;
+
+      // Get recent cards
+      const recentCards = db.prepare("SELECT * FROM cards ORDER BY created_at DESC LIMIT 7").all() as any[];
+      const recentAnimals = recentCards.map(c => c.animal_base).filter(Boolean);
+      const recentCompositions = recentCards.slice(0, 5).map(c => c.composition).filter(Boolean);
+
+      let prompt = "";
+      if (type === "merge") {
+        prompt = `
+          You are a master guide forging a new Spirit Animal Guide by merging two existing guides.
+          Guide 1: ${cards[0].identity} (Form: ${cards[0].strengths})
+          Guide 2: ${cards[1].identity} (Form: ${cards[1].strengths})
+
+          Create a new, reflective guide that combines aspects of both.
+          Return the response as a JSON object matching this schema:
+          {
+            "name": "string (The new guide name, max 22 chars)",
+            "animalBase": "string (The base animal species. Prefer uncommon but symbolically fitting animals. Avoid default archetypes like lion, wolf, eagle, turtle unless strongly justified. Encourage ecological diversity. Allow rare mythic creatures sparingly when the user's language suggests transformation or threshold states. Do not assign fixed archetypes to species. Allow interpretation to vary per generation.)",
+            "animalForm": "string (The combined animal form, e.g., 'Celestial Stag')",
+            "energyCore": "string (The core energy type)",
+            "archetype": "string (The archetype)",
+            "palette": "string (The primary color dominance)",
+            "poseVariant": "string (The pose variant)",
+            "composition": "string (Must be one of: 'Centered floating', 'Dynamic diagonal', 'Side profile', 'Grounded stance', 'Rising ascension pose')",
+            "ultimateAbility": {
+              "name": "string (A reflective title for this guide's wisdom)",
+              "description": "string (One strong paragraph reflection explaining how it guides or empowers the user. Grounded, reflective, precise, slightly mystical but not dramatic. No over-the-top fantasy language.)"
+            },
+            "guidanceLine": "string (Optional concise closing line that feels earned)"
+          }
+        `;
+      } else {
+        prompt = `
+          You are a master guide reforging an existing guide into a new, evolved form.
+          Original Guide: ${cards[0].identity} (Form: ${cards[0].strengths})
+
+          Create a new, evolved version of this guide. It should be related but distinctly different and more profound.
+          Return the response as a JSON object matching this schema:
+          {
+            "name": "string (The new guide name, max 22 chars)",
+            "animalBase": "string (The base animal species. Prefer uncommon but symbolically fitting animals. Avoid default archetypes like lion, wolf, eagle, turtle unless strongly justified. Encourage ecological diversity. Allow rare mythic creatures sparingly when the user's language suggests transformation or threshold states. Do not assign fixed archetypes to species. Allow interpretation to vary per generation.)",
+            "animalForm": "string (The evolved animal form)",
+            "energyCore": "string (The core energy type)",
+            "archetype": "string (The archetype)",
+            "palette": "string (The primary color dominance)",
+            "poseVariant": "string (The pose variant)",
+            "composition": "string (Must be one of: 'Centered floating', 'Dynamic diagonal', 'Side profile', 'Grounded stance', 'Rising ascension pose')",
+            "ultimateAbility": {
+              "name": "string (A reflective title for this guide's wisdom)",
+              "description": "string (One strong paragraph reflection explaining how it guides or empowers the user. Grounded, reflective, precise, slightly mystical but not dramatic. No over-the-top fantasy language.)"
+            },
+            "guidanceLine": "string (Optional concise closing line that feels earned)"
+          }
+        `;
+      }
+
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                animalBase: { type: Type.STRING },
+                animalForm: { type: Type.STRING },
+                energyCore: { type: Type.STRING },
+                archetype: { type: Type.STRING },
+                palette: { type: Type.STRING },
+                poseVariant: { type: Type.STRING },
+                composition: { type: Type.STRING },
+                ultimateAbility: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    description: { type: Type.STRING }
+                  },
+                  required: ["name", "description"]
+                },
+                guidanceLine: { type: Type.STRING }
+              },
+              required: ["name", "animalBase", "animalForm", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
+            }
+          }
+        });
+      } catch (e: any) {
+        console.error("Text generation failed:", e);
+        if (attempts === maxAttempts) throw new Error(`Text generation failed: ${e.message}`);
+        continue;
+      }
+
+      try {
+        let text = response.text || "{}";
+        text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        aiData = JSON.parse(text);
+      } catch (e) {
+        console.error("Failed to parse card data JSON:", response?.text);
+        if (attempts === maxAttempts) aiData = {};
+        continue;
+      }
+
+      if (!aiData.name || !aiData.animalBase) continue;
+
+      // Hard Locks
+      const nameExists = db.prepare("SELECT 1 FROM cards WHERE identity = ?").get(aiData.name);
+      if (nameExists) continue;
+
+      const abilityExists = db.prepare("SELECT 1 FROM cards WHERE ultimate_title = ?").get(aiData.ultimateAbility?.name);
+      if (abilityExists) continue;
+
+      dnaHash = `${aestheticStyle}-${aiData.animalBase}-${aiData.energyCore}-${aiData.archetype}-${aiData.palette}-${aiData.poseVariant}`;
+      const dnaExists = db.prepare("SELECT 1 FROM cards WHERE dna_hash = ?").get(dnaHash);
+      if (dnaExists) continue;
+
+      // Soft Ecology Rules
+      const animalCount = recentAnimals.filter(a => a === aiData.animalBase).length;
+      if (animalCount >= 1) {
+        const sameAnimalCards = recentCards.filter(c => c.animal_base === aiData.animalBase);
+        const conflict = sameAnimalCards.some(c =>
+          c.tier === aestheticStyle ||
+          c.energy_core === aiData.energyCore ||
+          c.pose_variant === aiData.poseVariant ||
+          c.palette === aiData.palette
+        );
+        if (conflict) continue;
+      }
+
+      if (recentCompositions.includes(aiData.composition)) continue;
+
+      success = true;
+    }
+
+    if (!success) {
+      console.warn("Failed to generate a completely unique card after 10 attempts, using last generated data.");
+    }
+
+    const stats = {
+      aestheticStyle,
+      ultimateAbility: aiData.ultimateAbility,
+      guidanceLine: aiData.guidanceLine
+    };
+
+    const shortId = generateShortId();
+
+    // Generate Image
+    const imagePrompt = `A complete, fully rendered collectible trading card of a Spirit Animal Guide.
+Theme: Evolved/Merged. Tone: Inspirational, Mythic, Safe.
+Animal Form: ${aiData.animalForm}.
+Energy Core: ${aiData.energyCore}.
+Archetype: ${aiData.archetype}.
+Palette: ${aiData.palette}.
+Pose Variant: ${aiData.poseVariant}.
+Composition: ${aiData.composition}.
+
+STRICT CARD GENERATION RULES:
+- Strict vertical 2:3 portrait format.
+- Card fills entire frame. No outer margin. No extended cinematic background. No horizontal expansion.
+- Border must be continuous and structural. No inset margins. No decorative partial frames. Edge-flush perimeter. Structural perimeter must be fully connected.
+
+AESTHETIC STYLE LOCK (${aestheticStyle}):
+${aestheticStyle === 'rare' ? '- Clean silver structural frame. Subtle contained glow. Minimal energy.' : ''}
+${aestheticStyle === 'epic' ? '- Arcane violet border. Enchanted glow contained within frame. Slight internal aura depth.' : ''}
+${aestheticStyle === 'legendary' ? '- Radiant gold structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay.' : ''}
+${aestheticStyle === 'mythic' ? '- Engineered obsidian structural perimeter. Crimson and radiant white internal energy veins. Dimensional pressure effects. Continuous unbroken edge-flush perimeter.' : ''}
+
+TEXT SYSTEM (Must be generated inside the image itself, embedded natively into the lower third card layout panel):
+Required layout hierarchy:
+[NAME – dominant epic serif font]: ${aiData.name}
+[SUBTITLE – refined technical sans serif]: ${aiData.animalForm}
+[ULTIMATE ABILITY – small caps header]: ${aiData.ultimateAbility?.name || ''}
+[Ability Description – clean legible text]: ${aiData.ultimateAbility?.description || ''}
+[Guidance Line – short italic typography at the very bottom]: ${aiData.guidanceLine || ''}
+
+GUIDE ID PLACEMENT:
+- Print the Guide ID prominently: ${shortId}
+- Treat it like a genuine card serial number stamped into the border.
+
+The output must look like a premium collectible card, engineered, authoritative, immersive, dimensional, collectible, and rare. The generated text must be perfectly legible and formally structured as if designed by a UI artist.`;
+
+    let imageUrl = "";
+    try {
+      const imageResponse = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: {
+          parts: [{ text: imagePrompt }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "3:4"
+          }
+        }
+      });
+
+      for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          const base64Data = part.inlineData.data;
+          const fileName = `forge-${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+          const filePath = path.join(uploadDir, fileName);
+          fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+          imageUrl = `/uploads/${fileName}`;
+          break;
+        }
+      }
+    } catch (e) {
+      console.error("Image generation failed in forge:", e);
+    }
+
+    db.exec('BEGIN TRANSACTION');
+
+    const userCheck = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId) as any;
+    if (!userCheck || userCheck.credits < cost) {
+      db.exec('ROLLBACK');
+      return res.status(400).json({ error: "Not enough credits." });
+    }
+
+    db.prepare("UPDATE users SET credits = credits - ? WHERE id = ?").run(cost, userId);
+
+    const newCardId = uuidv4();
+    const verificationHash = crypto.createHash('sha256').update(JSON.stringify(aiData) + shortId).digest('hex');
+
+    db.prepare(`
+      INSERT INTO cards (id, user_id, identity, strengths, weakness, signature_move, image_url, stats, tier, border_id, border_lock_mode, editable_unlocked, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      newCardId,
+      userId,
+      aiData.name,
+      aiData.animalForm,
+      "",
+      aiData.ultimateAbility?.description || "",
+      imageUrl,
+      JSON.stringify(stats),
+      aestheticStyle,
+      borderId,
+      'ai',
+      0,
+      shortId,
+      verificationHash,
+      aiData.animalBase || "",
+      "Evolved/Merged",
+      aiData.energyCore || "",
+      aiData.archetype || "",
+      aiData.palette || "",
+      aiData.poseVariant || "",
+      aiData.composition || "",
+      aiData.ultimateAbility?.name || "",
+      dnaHash
+    );
+
+    // Delete old cards
+    for (const id of cardIds) {
+      db.prepare("DELETE FROM cards WHERE id = ?").run(id);
+    }
+
+    const txId = uuidv4();
+    db.prepare(`
+      INSERT INTO transactions (id, user_id, type, delta_credits, card_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(txId, userId, type, -cost, newCardId);
+
+    db.exec('COMMIT');
+
+    const newCard = db.prepare("SELECT * FROM cards WHERE id = ?").get(newCardId) as any;
+    newCard.stats = JSON.parse(newCard.stats);
+
+    res.json({ card: newCard });
+  } catch (error) {
+    if (db.inTransaction) db.exec('ROLLBACK');
+    console.error("Forge error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/:id/unlock-editing", authenticate, (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const userId = req.user.id;
+
+    const card = db.prepare("SELECT * FROM cards WHERE id = ?").get(cardId) as any;
+    if (!card) return res.status(404).json({ error: "Card not found" });
+    if (card.user_id !== userId) return res.status(403).json({ error: "Forbidden" });
+
+    if (card.editable_unlocked) {
+      return res.json({ message: "Already unlocked", card });
+    }
+
+    db.exec('BEGIN TRANSACTION');
+
+    const userCheck = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId) as any;
+    if (!userCheck || userCheck.credits < 1) {
+      db.exec('ROLLBACK');
+      return res.status(402).json({ error: "Not enough credits." });
+    }
+
+    db.prepare("UPDATE users SET credits = credits - 1 WHERE id = ?").run(userId);
+    db.prepare("UPDATE cards SET editable_unlocked = 1 WHERE id = ?").run(cardId);
+
+    const txId = uuidv4();
+    db.prepare(`
+      INSERT INTO transactions (id, user_id, type, delta_credits, card_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(txId, userId, 'unlock_editing', -1, cardId);
+
+    db.exec('COMMIT');
+
+    const updatedCard = db.prepare("SELECT * FROM cards WHERE id = ?").get(cardId) as any;
+    try {
+      updatedCard.stats = typeof updatedCard.stats === 'string' ? JSON.parse(updatedCard.stats) : updatedCard.stats;
+    } catch (e) {
+      console.error("Failed to parse stats for card", cardId);
+    }
+    if (updatedCard.legendary_data) {
+      try {
+        updatedCard.legendary_data = typeof updatedCard.legendary_data === 'string' ? JSON.parse(updatedCard.legendary_data) : updatedCard.legendary_data;
+      } catch (e) { }
+    }
+    if (updatedCard.custom_text_overrides) {
+      try {
+        updatedCard.custom_text_overrides = typeof updatedCard.custom_text_overrides === 'string' ? JSON.parse(updatedCard.custom_text_overrides) : updatedCard.custom_text_overrides;
+      } catch (e) { }
+    }
+
+    res.json({ card: updatedCard });
+  } catch (error) {
+    if (db.inTransaction) db.exec('ROLLBACK');
+    console.error("Unlock editing error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/:id/edit-text", authenticate, (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const userId = req.user.id;
+    const { field, value } = req.body;
+
+    if (!field || typeof value !== 'string') {
+      return res.status(400).json({ error: "Invalid input" });
+    }
+
+    const card = db.prepare("SELECT * FROM cards WHERE id = ?").get(cardId) as any;
+    if (!card) return res.status(404).json({ error: "Card not found" });
+    if (card.user_id !== userId) return res.status(403).json({ error: "Forbidden" });
+
+    if (!card.editable_unlocked) {
+      return res.status(403).json({ error: "Editing not unlocked for this card" });
+    }
+
+    // Validation Rules
+    const limits: Record<string, number> = {
+      bossTitle: 60,
+      primaryAttack: 90,
+      phaseTwoTrigger: 90,
+      exposedWeakPoint: 90,
+      passiveAura: 120,
+      resistance: 150,
+    };
+
+    if (!limits[field]) {
+      return res.status(400).json({ error: "Invalid field" });
+    }
+
+    const sanitizedValue = value.replace(/<[^>]*>?/gm, '').trim();
+    if (sanitizedValue.length === 0) {
+      return res.status(400).json({ error: "Value cannot be empty" });
+    }
+
+    if (sanitizedValue.length > limits[field]) {
+      return res.status(400).json({ error: `Value exceeds maximum length of ${limits[field]} characters` });
+    }
+
+    let overrides: any = {};
+    if (card.custom_text_overrides) {
+      try {
+        overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides;
+      } catch (e) { }
+    }
+
+    overrides[field] = sanitizedValue;
+
+    db.prepare("UPDATE cards SET custom_text_overrides = ? WHERE id = ?").run(JSON.stringify(overrides), cardId);
+
+    const updatedCard = db.prepare("SELECT * FROM cards WHERE id = ?").get(cardId) as any;
+    try {
+      updatedCard.stats = typeof updatedCard.stats === 'string' ? JSON.parse(updatedCard.stats) : updatedCard.stats;
+    } catch (e) {
+      console.error("Failed to parse stats for card", cardId);
+    }
+    if (updatedCard.legendary_data) {
+      try {
+        updatedCard.legendary_data = typeof updatedCard.legendary_data === 'string' ? JSON.parse(updatedCard.legendary_data) : updatedCard.legendary_data;
+      } catch (e) { }
+    }
+    if (updatedCard.custom_text_overrides) {
+      try {
+        updatedCard.custom_text_overrides = typeof updatedCard.custom_text_overrides === 'string' ? JSON.parse(updatedCard.custom_text_overrides) : updatedCard.custom_text_overrides;
+      } catch (e) { }
+    }
+
+    res.json({ card: updatedCard });
+  } catch (error) {
+    console.error("Edit text error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/:id/border", authenticate, (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const userId = req.user.id;
+    const { borderId, borderLockMode } = req.body;
+
+    const validBorders = ["gilded_relic", "obsidian_prism", "candy_pop", "crimson_infernal", "arcane_sapphire", "emerald_royal"];
+    if (!validBorders.includes(borderId)) {
+      return res.status(400).json({ error: "Invalid border ID" });
+    }
+
+    if (borderLockMode !== "ai" && borderLockMode !== "user") {
+      return res.status(400).json({ error: "Invalid border lock mode" });
+    }
+
+    const card = db.prepare("SELECT * FROM cards WHERE id = ?").get(cardId) as any;
+    if (!card) return res.status(404).json({ error: "Card not found" });
+    if (card.user_id !== userId) return res.status(403).json({ error: "Forbidden" });
+
+    // Only allow if legendary or mythic
+    if (card.tier !== 'legendary' && card.tier !== 'mythic') {
+      return res.status(403).json({ error: "Must be legendary to customize border" });
+    }
+
+    db.prepare("UPDATE cards SET border_id = ?, border_lock_mode = ? WHERE id = ?").run(borderId, borderLockMode, cardId);
+
+    const updatedCard = db.prepare("SELECT * FROM cards WHERE id = ?").get(cardId) as any;
+    try {
+      updatedCard.stats = typeof updatedCard.stats === 'string' ? JSON.parse(updatedCard.stats) : updatedCard.stats;
+    } catch (e) { }
+    if (updatedCard.legendary_data) {
+      try {
+        updatedCard.legendary_data = typeof updatedCard.legendary_data === 'string' ? JSON.parse(updatedCard.legendary_data) : updatedCard.legendary_data;
+      } catch (e) { }
+    }
+    if (updatedCard.custom_text_overrides) {
+      try {
+        updatedCard.custom_text_overrides = typeof updatedCard.custom_text_overrides === 'string' ? JSON.parse(updatedCard.custom_text_overrides) : updatedCard.custom_text_overrides;
+      } catch (e) { }
+    }
+
+    res.json({ card: updatedCard });
+  } catch (error) {
+    console.error("Edit border error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/:id/remix", authenticate, async (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const userId = req.user.id;
+    const { instructions, mode = "visual", chips = [] } = req.body;
+
+    const card = db.prepare("SELECT * FROM cards WHERE id = ? AND user_id = ?").get(cardId, userId) as any;
+    if (!card) {
+      return res.status(404).json({ error: "Card not found or unauthorized" });
+    }
+
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
+    const cost = 2; // Remixing costs 2 credits
+    if (!user || user.credits < cost) {
+      return res.status(400).json({ error: `Not enough credits. ${cost} credits required.` });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "API Key is not set." });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+
+    // Parse existing stats to feed back to the AI
+    let originalStats: any = {};
+    try {
+      originalStats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats;
+    } catch (e) {
+      console.warn("Failed to parse original stats for remix", e);
+    }
+
+    let aiData: any = {};
+    let dnaHash = "";
+    let attempts = 0;
+    const maxAttempts = 10;
+    let success = false;
+
+    // Preserve style or upgrade if Boss mode
+    let aestheticStyle = card.tier || "rare";
+    let borderId = card.border_id || "emerald_royal";
+
+    if (mode === "boss" && aestheticStyle !== "mythic") {
+      aestheticStyle = "mythic";
+      borderId = "obsidian_prism";
+    }
+
+    while (attempts < maxAttempts && !success) {
+      attempts++;
+
+      const prompt = `
+        This is a remix/reforge of an existing Final Form card. 
+        Preserve the same core character identity, visual continuity, and likeness. 
+        Keep all strong successful aspects unless the user explicitly requests changes. 
+        Apply only the requested refinements. The result should feel like an upgraded or revised version of the same character, not a completely new person.
+
+        ORIGINAL CHARACTER DATA:
+        - Name: ${card.identity}
+        - Animal Base/Form: ${card.animal_base} / ${card.strengths}
+        - Energy Core: ${card.energy_core}
+        - Archetype: ${card.archetype}
+        - Pose/Composition: ${card.pose_variant} / ${card.composition}
+        - Ultimate: ${card.ultimate_title}
+
+        REMIX INSTRUCTIONS:
+        - Mode: ${mode} (${mode === 'visual' ? 'Change presentation, keep lore' : mode === 'character' ? 'Evolve lore and styling' : 'Push everything harder, larger scale, final boss energy'})
+        - Selected Quick Chips: ${chips.join(', ') || 'None'}
+        - User Custom Request: "${instructions || 'Just enhance and polish the overall design.'}"
+
+        Generate the revised character details based on the above. The output must be strict JSON matching this schema:
+        {
+          "name": "string (The guide name, max 22 chars)",
+          "animalBase": "string (The base animal species)",
+          "animalForm": "string (The animal form/title)",
+          "energyCore": "string (The core energy type)",
+          "archetype": "string (The archetype)",
+          "palette": "string (The primary color dominance)",
+          "poseVariant": "string (The pose variant)",
+          "composition": "string (Must be one of: 'Centered floating', 'Dynamic action pose', 'Intimidating low angle', 'Heroic standing')",
+          "ultimateAbility": {
+            "name": "string (Ability name)",
+            "description": "string (Ability description)"
+          },
+          "guidanceLine": "string (Flavor text)"
+        }
+      `;
+
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                animalBase: { type: Type.STRING },
+                animalForm: { type: Type.STRING },
+                energyCore: { type: Type.STRING },
+                archetype: { type: Type.STRING },
+                palette: { type: Type.STRING },
+                poseVariant: { type: Type.STRING },
+                composition: { type: Type.STRING },
+                ultimateAbility: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    description: { type: Type.STRING }
+                  },
+                  required: ["name", "description"]
+                },
+                guidanceLine: { type: Type.STRING }
+              },
+              required: ["name", "animalBase", "animalForm", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
+            }
+          }
+        });
+      } catch (e: any) {
+        console.error("Text generation failed during remix:", e);
+        if (attempts === maxAttempts) throw new Error(`Text generation failed: ${e.message}`);
+        continue;
+      }
+
+      try {
+        let text = response.text || "{}";
+        text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        aiData = JSON.parse(text);
+      } catch (e) {
+        console.error("Failed to parse remixed card data JSON:", response?.text);
+        if (attempts === maxAttempts) aiData = {};
+        continue;
+      }
+
+      if (!aiData.name || !aiData.animalBase) continue;
+
+      dnaHash = `${aestheticStyle}-${aiData.animalBase}-${aiData.energyCore}-${aiData.archetype}-${aiData.palette}-${aiData.poseVariant}`;
+      success = true;
+    }
+
+    if (!success) {
+      return res.status(500).json({ error: "Failed to generate remixed card data." });
+    }
+
+    const shortId = generateShortId();
+
+    const imagePrompt = `A premium, full-art game trading card featuring a Remixed/Evolved Character.
+Theme: ${aiData.animalBase}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
+Energy Core (Element): ${aiData.energyCore}.
+Class/Archetype: ${aiData.archetype}.
+Palette: ${aiData.palette}.
+Pose: ${aiData.poseVariant}.
+Composition: ${aiData.composition}.
+
+REMIX GOAL: ${instructions || 'Enhance and polish'}
+CHIPS APPLIED: ${chips.join(', ')}
+
+${mode === 'boss' ? 'ULTIMATE FINAL BOSS MODE ENABLED. Maximum visual intimidation and dramatic dominance in the composition. Strip away standard borders, make the character break out of the frame.' : ''}
+
+STRICT CARD GENERATION RULES:
+- Strict vertical 2:3 portrait format.
+- Card fills entire frame. No outer margin. No extended cinematic background. No horizontal expansion.
+- Border must be continuous and structural. No inset margins. No decorative partial frames. Edge-flush perimeter. Structural perimeter must be fully connected.
+
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):
+[CARD NAME – dominant epic cinematic font]: ${aiData.name}
+[SUBTITLE – below name, sleek font]: ${aiData.animalForm}
+[WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:
+[Header]: ${aiData.ultimateAbility?.name || ''}
+[Description Text]: ${aiData.ultimateAbility?.description || ''}
+[Flavor Text / Quote – italics at the very bottom]: "${aiData.guidanceLine || ''}"
+
+No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-rare holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
+
+    let imageUrl = "";
+    try {
+      const imageResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: imagePrompt }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "3:4"
+          }
+        }
+      });
+
+      for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          const base64Data = part.inlineData.data;
+          const fileName = `remix-${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+          const filePath = path.join(uploadDir, fileName);
+          fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+          imageUrl = `/uploads/${fileName}`;
+          break;
+        }
+      }
+    } catch (e) {
+      console.error("Image generation failed in remix:", e);
+    }
+
+    db.exec('BEGIN TRANSACTION');
+
+    const userCheck = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId) as any;
+    if (!userCheck || userCheck.credits < cost) {
+      db.exec('ROLLBACK');
+      return res.status(400).json({ error: "Not enough credits." });
+    }
+
+    db.prepare("UPDATE users SET credits = credits - ? WHERE id = ?").run(cost, userId);
+
+    const newCardId = uuidv4();
+    const verificationHash = crypto.createHash('sha256').update(JSON.stringify(aiData) + shortId).digest('hex');
+
+    const statsObject = {
+      aestheticStyle: aestheticStyle,
+      ultimateAbility: aiData.ultimateAbility,
+      guidanceLine: aiData.guidanceLine,
+      rpgStats: originalStats.rpgStats || { Power: 50, Speed: 50, Defense: 50, Intelligence: 50, Presence: 50, Energy: 50 },
+      signatureWeapon: originalStats.signatureWeapon || "",
+      passives: originalStats.passives || [],
+      resistances: originalStats.resistances || "",
+      weakness: originalStats.weakness || "",
+      displayOptions: originalStats.displayOptions || { stats: false, ultimate: true, passives: false, resistances: false, quote: true, weapon: false }
+    };
+
+    db.prepare(`
+      INSERT INTO cards (
+        id, user_id, identity, strengths, weakness, signature_move, image_url, stats, 
+        tier, border_id, border_lock_mode, editable_unlocked, short_id, verification_hash, 
+        animal_base, theme, energy_core, archetype, palette, pose_variant, composition, 
+        ultimate_title, dna_hash, is_premium, parent_id, is_remix, remix_mode, 
+        remix_instructions, remix_chip_selections
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      newCardId,
+      userId,
+      aiData.name,
+      aiData.animalForm,
+      originalStats.weakness || "",
+      aiData.ultimateAbility?.description || "",
+      imageUrl,
+      JSON.stringify(statsObject),
+      aestheticStyle,
+      borderId,
+      'ai',
+      0,
+      shortId,
+      verificationHash,
+      aiData.animalBase || "",
+      card.theme || "Remixed Form",
+      aiData.energyCore || "",
+      aiData.archetype || "",
+      aiData.palette || "",
+      aiData.poseVariant || "",
+      aiData.composition || "",
+      aiData.ultimateAbility?.name || "",
+      dnaHash,
+      mode === 'boss' ? 1 : (card.is_premium || 0),
+      cardId,
+      1,
+      mode,
+      instructions || "",
+      JSON.stringify(chips)
+    );
+
+    const txId = uuidv4();
+    db.prepare(`
+      INSERT INTO transactions (id, user_id, type, delta_credits, card_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(txId, userId, 'remix', -cost, newCardId);
+
+    db.exec('COMMIT');
+
+    const newCard = db.prepare("SELECT * FROM cards WHERE id = ?").get(newCardId) as any;
+    newCard.stats = JSON.parse(newCard.stats);
+
+    res.json({ card: newCard });
+  } catch (error) {
+    if (db.inTransaction) db.exec('ROLLBACK');
+    console.error("Remix error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;

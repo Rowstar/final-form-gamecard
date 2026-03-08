@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Card from './Card';
+import { soundManager } from '../lib/soundManager';
 
 const STATUS_LINES = [
     "Scanning identity signature...",
@@ -29,11 +30,23 @@ export default function CardRevealSequence({
     const teaseDuration = isMythic ? 1200 : isLegendary ? 800 : 600;
 
     useEffect(() => {
+        // Start ambient loop when sequence mounts
+        soundManager.playLoop('sfx_reveal_ambient_loop', { volume: isMythic ? 0.8 : 0.4 });
+        return () => soundManager.stopLoop('sfx_reveal_ambient_loop', 500);
+    }, [isMythic]);
+
+    useEffect(() => {
         // Cycle status text during scan phase
         let statusInterval: NodeJS.Timeout;
         if (phase === 'scan') {
             statusInterval = setInterval(() => {
-                setStatusIndex(prev => Math.min(prev + 1, STATUS_LINES.length - 1));
+                setStatusIndex(prev => {
+                    const next = Math.min(prev + 1, STATUS_LINES.length - 1);
+                    if (next > prev) {
+                        soundManager.playSound('sfx_reveal_tick', { volume: 0.3 });
+                    }
+                    return next;
+                });
             }, scanDuration / STATUS_LINES.length);
         }
         return () => clearInterval(statusInterval);
@@ -42,19 +55,38 @@ export default function CardRevealSequence({
     useEffect(() => {
         // Phase transitions
         if (phase === 'scan') {
-            const timer = setTimeout(() => setPhase('tease'), scanDuration);
+            const timer = setTimeout(() => {
+                soundManager.playSound('sfx_reveal_tease', { volume: isMythic ? 0.9 : 0.6 });
+                setPhase('tease');
+            }, scanDuration);
             return () => clearTimeout(timer);
         } else if (phase === 'tease') {
-            const timer = setTimeout(() => setPhase('reveal'), teaseDuration);
+            const timer = setTimeout(() => {
+                soundManager.stopLoop('sfx_reveal_ambient_loop', 300);
+                soundManager.playSound('sfx_card_flip', { volume: isLegendary || isMythic ? 1 : 0.7 });
+                setPhase('reveal');
+
+                // Trigger impact when the spring animation lands
+                setTimeout(() => {
+                    soundManager.playSound('sfx_card_impact', { volume: isMythic ? 1 : 0.8 });
+
+                    // Trigger shimmer shortly after impact
+                    setTimeout(() => {
+                        soundManager.playSound('sfx_foil_shimmer', { volume: isLegendary || isMythic ? 0.8 : 0.5 });
+                    }, 800);
+                }, 600);
+            }, teaseDuration);
             return () => clearTimeout(timer);
         } else if (phase === 'reveal') {
             // Allow the reveal animation to play, then signal completion to parent
             const timer = setTimeout(() => onComplete(), 2000);
             return () => clearTimeout(timer);
         }
-    }, [phase, scanDuration, teaseDuration, onComplete]);
+    }, [phase, scanDuration, teaseDuration, onComplete, isMythic, isLegendary]);
 
     const handleSkip = () => {
+        soundManager.stopLoop('sfx_reveal_ambient_loop', 0);
+        soundManager.playSound('sfx_card_impact', { volume: 0.5 });
         setPhase('reveal');
         onComplete();
     };

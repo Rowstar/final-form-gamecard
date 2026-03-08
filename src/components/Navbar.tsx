@@ -1,13 +1,16 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { User, PlusCircle, Home, Coins, Plus, Flame } from "lucide-react";
-import { useEffect, useState } from "react";
+import { User, PlusCircle, Home, Coins, Plus, Flame, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useState, ChangeEvent } from "react";
 import { fetchWithAuth, getAuthToken } from "../lib/api.ts";
+import { soundManager } from "../lib/soundManager";
 
 export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState<any>(null);
   const [addingCredits, setAddingCredits] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(soundManager.isEnabled());
+  const [volume, setVolume] = useState(soundManager.getVolume());
 
   const fetchUser = () => {
     if (getAuthToken()) {
@@ -20,6 +23,26 @@ export default function Navbar() {
   useEffect(() => {
     fetchUser();
   }, [location.pathname]); // Re-fetch when route changes
+
+  useEffect(() => {
+    const handleSoundChange = () => setSoundEnabled(soundManager.isEnabled());
+    const handleVolumeChange = (e: any) => setVolume(e.detail.volume);
+
+    window.addEventListener('soundSettingsChanged', handleSoundChange);
+    window.addEventListener('volumeChanged', handleVolumeChange);
+    return () => {
+      window.removeEventListener('soundSettingsChanged', handleSoundChange);
+      window.removeEventListener('volumeChanged', handleVolumeChange);
+    };
+  }, []);
+
+  const handleVolumeInput = (e: ChangeEvent<HTMLInputElement>) => {
+    soundManager.setVolume(parseFloat(e.target.value));
+  };
+
+  const handleToggleSound = () => {
+    soundManager.toggleSound();
+  };
 
   const handleAddCredits = async () => {
     if (addingCredits) return;
@@ -38,17 +61,32 @@ export default function Navbar() {
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-zinc-900/80 backdrop-blur-md border-t border-white/10 sm:top-0 sm:bottom-auto sm:border-t-0 sm:border-b">
       <div className="max-w-md mx-auto px-6 h-16 flex items-center justify-between sm:max-w-xl md:max-w-2xl lg:max-w-4xl">
         <div className="flex items-center gap-6">
-          <Link to="/" className="flex flex-col items-center gap-1 text-zinc-400 hover:text-white transition-colors sm:flex-row sm:gap-2">
+          <Link
+            to="/"
+            onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
+            onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.3 })}
+            className="flex flex-col items-center gap-1 text-zinc-400 hover:text-white transition-colors sm:flex-row sm:gap-2"
+          >
             <Home size={20} />
             <span className="text-[10px] font-medium uppercase tracking-wider sm:text-sm">Home</span>
           </Link>
 
-          <Link to="/create" className="flex flex-col items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-colors sm:flex-row sm:gap-2">
+          <Link
+            to="/create"
+            onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
+            onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.3 })}
+            className="flex flex-col items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-colors sm:flex-row sm:gap-2"
+          >
             <PlusCircle size={24} className="sm:w-5 sm:h-5" />
             <span className="text-[10px] font-medium uppercase tracking-wider sm:text-sm">Create</span>
           </Link>
 
-          <Link to="/forge-lab" className="flex flex-col items-center gap-1 text-purple-400 hover:text-purple-300 transition-colors sm:flex-row sm:gap-2">
+          <Link
+            to="/forge-lab"
+            onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
+            onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.3 })}
+            className="flex flex-col items-center gap-1 text-purple-400 hover:text-purple-300 transition-colors sm:flex-row sm:gap-2"
+          >
             <Flame size={24} className="sm:w-5 sm:h-5" />
             <span className="text-[10px] font-medium uppercase tracking-wider sm:text-sm">Forge Lab</span>
           </Link>
@@ -70,7 +108,36 @@ export default function Navbar() {
             </div>
           )}
 
-          <Link to={user ? "/profile" : "/auth"} className="flex flex-col items-center gap-1 text-zinc-400 hover:text-white transition-colors sm:flex-row sm:gap-2">
+          <div className="relative flex items-center group">
+            <button
+              onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.3 }); handleToggleSound(); }}
+              onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
+              className="flex flex-col items-center gap-1 text-zinc-400 hover:text-white transition-colors sm:flex-row sm:gap-2 mr-2"
+              title={soundEnabled ? "Mute Sound" : "Enable Sound"}
+            >
+              {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} className="text-zinc-600" />}
+              <span className="sr-only">Toggle Sound</span>
+            </button>
+
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 hidden group-hover:flex bg-zinc-800 border border-white/10 rounded-lg p-3 shadow-xl origin-bottom transition-all">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={handleVolumeInput}
+                className="w-24 accent-emerald-500 h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer"
+              />
+            </div>
+          </div>
+
+          <Link
+            to={user ? "/profile" : "/auth"}
+            onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
+            onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.3 })}
+            className="flex flex-col items-center gap-1 text-zinc-400 hover:text-white transition-colors sm:flex-row sm:gap-2"
+          >
             <User size={20} />
             <span className="text-[10px] font-medium uppercase tracking-wider sm:text-sm">
               {user ? "Collection" : "Login"}

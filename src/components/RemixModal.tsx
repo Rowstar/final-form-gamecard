@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Wand2, Shield, Zap, Skull, Crown, X } from 'lucide-react';
+import { soundManager } from '../lib/soundManager';
 
 export default function RemixModal({
     isOpen,
@@ -21,13 +22,23 @@ export default function RemixModal({
         "Better Armor", "Better Weapon", "Cleaner Text"
     ];
 
+    useEffect(() => {
+        if (isOpen) {
+            soundManager.playSound('sfx_ui_open', { volume: 0.5 });
+        } else {
+            soundManager.playSound('sfx_ui_close', { volume: 0.4 });
+        }
+    }, [isOpen]);
+
     const handleChipToggle = (chip: string) => {
+        soundManager.playSound('sfx_chip_toggle', { volume: 0.3 });
         setSelectedChips(prev =>
             prev.includes(chip) ? prev.filter(c => c !== chip) : [...prev, chip]
         );
     };
 
     const handleSubmit = () => {
+        soundManager.playSound('sfx_reforge_start', { volume: 0.8 });
         onRemix(instructions, mode, selectedChips);
     };
 
@@ -59,7 +70,7 @@ export default function RemixModal({
                             <label className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Reforge Mode</label>
                             <div className="grid grid-cols-1 gap-2">
                                 <button
-                                    onClick={() => setMode('visual')}
+                                    onClick={() => { soundManager.playSound('sfx_chip_toggle', { volume: 0.2 }); setMode('visual'); }}
                                     className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-colors ${mode === 'visual' ? 'bg-purple-500/10 border-purple-500/50' : 'bg-zinc-950/50 border-white/5 hover:border-white/20'}`}
                                 >
                                     <Shield size={18} className={`mt-0.5 ${mode === 'visual' ? 'text-purple-400' : 'text-zinc-500'}`} />
@@ -70,7 +81,7 @@ export default function RemixModal({
                                 </button>
 
                                 <button
-                                    onClick={() => setMode('character')}
+                                    onClick={() => { soundManager.playSound('sfx_chip_toggle', { volume: 0.2 }); setMode('character'); }}
                                     className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-colors ${mode === 'character' ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-zinc-950/50 border-white/5 hover:border-white/20'}`}
                                 >
                                     <Zap size={18} className={`mt-0.5 ${mode === 'character' ? 'text-emerald-400' : 'text-zinc-500'}`} />
@@ -81,7 +92,7 @@ export default function RemixModal({
                                 </button>
 
                                 <button
-                                    onClick={() => setMode('boss')}
+                                    onClick={() => { soundManager.playSound('sfx_chip_toggle', { volume: 0.2 }); setMode('boss'); }}
                                     className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-colors ${mode === 'boss' ? 'bg-red-500/10 border-red-500/50' : 'bg-zinc-950/50 border-white/5 hover:border-white/20'}`}
                                 >
                                     <Skull size={18} className={`mt-0.5 ${mode === 'boss' ? 'text-red-400' : 'text-zinc-500'}`} />

@@ -4,6 +4,7 @@ import { fetchWithAuth, clearAuthToken, API_URL } from "../lib/api.ts";
 import Card from "../components/Card.tsx";
 import { motion } from "motion/react";
 import { LogOut, Sparkles, Zap, Share2, PlusCircle } from "lucide-react";
+import { soundManager } from '../lib/soundManager';
 
 export default function Profile() {
   const { id } = useParams();
@@ -119,13 +120,15 @@ export default function Profile() {
               </div>
               <div className="flex items-center gap-4">
                 <button
-                  onClick={handleShare}
+                  onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.3 }); handleShare(); }}
+                  onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
                   className="text-sm text-zinc-400 hover:text-white flex items-center gap-1 transition-colors"
                 >
                   <Share2 size={14} /> Share Profile
                 </button>
                 <button
-                  onClick={handleLogout}
+                  onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.3 }); handleLogout(); }}
+                  onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
                   className="text-sm text-zinc-500 hover:text-red-400 flex items-center gap-1 transition-colors"
                 >
                   <LogOut size={14} /> Logout
@@ -134,7 +137,8 @@ export default function Profile() {
             </>
           ) : (
             <button
-              onClick={handleShare}
+              onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.3 }); handleShare(); }}
+              onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
               className="flex items-center gap-2 bg-zinc-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-zinc-700 transition-colors text-sm"
             >
               <Share2 size={16} /> Share
@@ -155,7 +159,12 @@ export default function Profile() {
           {isOwner ? (
             <>
               <p className="text-zinc-500 mb-6">It's time to discover your first Final Form.</p>
-              <Link to="/create" className="inline-flex items-center gap-2 bg-emerald-500 text-zinc-950 px-6 py-3 rounded-xl font-bold hover:bg-emerald-400 transition-colors">
+              <Link
+                to="/create"
+                onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.4 })}
+                onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
+                className="inline-flex items-center gap-2 bg-emerald-500 text-zinc-950 px-6 py-3 rounded-xl font-bold hover:bg-emerald-400 transition-colors"
+              >
                 <PlusCircle size={20} />
                 Create Card
               </Link>
@@ -173,7 +182,11 @@ export default function Profile() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
             >
-              <Link to={`/card/${card.id}`} className="block">
+              <Link
+                to={`/card/${card.id}`}
+                onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.3 })}
+                className="block"
+              >
                 <Card card={card} />
               </Link>
             </motion.div>

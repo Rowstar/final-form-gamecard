@@ -4,6 +4,7 @@ import { fetchWithAuth, API_URL } from "../lib/api.ts";
 import Card from "../components/Card.tsx";
 import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, ArrowRight, Zap, Flame } from "lucide-react";
+import { soundManager } from '../lib/soundManager';
 
 export default function ForgeLab() {
   const [cards, setCards] = useState<any[]>([]);
@@ -26,6 +27,7 @@ export default function ForgeLab() {
   }, []);
 
   const handleSelectCard = (card: any) => {
+    soundManager.playSound('sfx_forge_select', { volume: 0.5 });
     if (selectedCards.find(c => c.id === card.id)) {
       setSelectedCards(selectedCards.filter(c => c.id !== card.id));
     } else if (selectedCards.length < 2) {
@@ -36,6 +38,7 @@ export default function ForgeLab() {
   const handleForge = async () => {
     if (selectedCards.length === 0) return;
 
+    soundManager.playSound('sfx_forge_merge', { volume: 0.8 });
     setForging(true);
     try {
       const res = await fetchWithAuth("/cards/forge", {
@@ -47,11 +50,13 @@ export default function ForgeLab() {
         })
       });
 
+      soundManager.playSound('sfx_success', { volume: 0.6 });
       setForgeResult(res.card);
       // Remove used cards and add new one
       setCards(prev => [...prev.filter(c => !selectedCards.find(sc => sc.id === c.id)), res.card]);
       setSelectedCards([]);
     } catch (err: any) {
+      soundManager.playSound('sfx_error', { volume: 0.5 });
       alert(err.message || "Forge failed.");
     } finally {
       setForging(false);
@@ -139,7 +144,8 @@ export default function ForgeLab() {
 
         <div className="mt-8 flex justify-center relative z-10">
           <button
-            onClick={handleForge}
+            onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.4 }); handleForge(); }}
+            onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
             disabled={selectedCards.length === 0 || forging}
             className="flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white px-8 py-4 rounded-xl font-bold hover:from-purple-500 hover:to-fuchsia-500 transition-all shadow-[0_0_20px_rgba(192,132,252,0.4)] disabled:opacity-50 disabled:shadow-none min-w-[200px]"
           >

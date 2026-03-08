@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { motion, useMotionValue, useTransform } from "motion/react";
 import { API_URL } from "../lib/api.ts";
+import { soundManager } from '../lib/soundManager';
 
 export default function Card({
   card,
@@ -63,6 +64,7 @@ export default function Card({
       style={{ rotateX, rotateY, transformPerspective: 1000 }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.15 })}
       className={`relative inline-block w-full max-w-sm mx-auto rounded-2xl group cursor-pointer bg-transparent leading-none p-0 m-0`}
     >
       <motion.div

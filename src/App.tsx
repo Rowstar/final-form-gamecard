@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { soundManager } from "./lib/soundManager";
 import Home from "./pages/Home.tsx";
 import Create from "./pages/Create.tsx";
 import CardReveal from "./pages/CardReveal.tsx";
@@ -13,6 +15,22 @@ import ForgeLab from "./pages/ForgeLab.tsx";
 import Navbar from "./components/Navbar.tsx";
 
 export default function App() {
+  useEffect(() => {
+    const startTheme = () => {
+      soundManager.playLoop('sfx_theme_song', { volume: 0.3 });
+      window.removeEventListener('click', startTheme);
+      window.removeEventListener('keydown', startTheme);
+    };
+
+    window.addEventListener('click', startTheme);
+    window.addEventListener('keydown', startTheme);
+
+    return () => {
+      window.removeEventListener('click', startTheme);
+      window.removeEventListener('keydown', startTheme);
+    };
+  }, []);
+
   return (
     <Router>
       <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans selection:bg-emerald-500/30">

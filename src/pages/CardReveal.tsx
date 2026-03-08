@@ -5,8 +5,9 @@ import Card from "../components/Card.tsx";
 import CardRevealSequence from "../components/CardRevealSequence.tsx";
 import RemixModal from "../components/RemixModal.tsx";
 import { motion, AnimatePresence } from "motion/react";
-import { Download, Share2, Sparkles, Image as ImageIcon, Wand2, ArrowLeft } from "lucide-react";
+import { Download, Share2, Sparkles, Image as ImageIcon, Wand2, ArrowLeft, Crown } from "lucide-react";
 import * as htmlToImage from 'html-to-image';
+import { soundManager } from '../lib/soundManager';
 
 export default function CardReveal() {
   const { id } = useParams();
@@ -100,7 +101,8 @@ export default function CardReveal() {
       setCard(result.card);
       setShowReveal(true);
       if (currentUser) {
-        setCurrentUser({ ...currentUser, credits: currentUser.credits - 2 }); // Ensure UI reflects credit cost
+        const cost = mode === "ascend" ? 3 : 2;
+        setCurrentUser({ ...currentUser, credits: currentUser.credits - cost }); // Ensure UI reflects credit cost
       }
     } catch (err: any) {
       alert(err.message || "Remix failed.");
@@ -131,12 +133,13 @@ export default function CardReveal() {
   }
 
   const handleShare = async () => {
+    soundManager.playSound('sfx_share', { volume: 0.6 });
     const url = `${window.location.origin}/card/${card.short_id || card.id}`;
     if (navigator.share) {
       try {
         await navigator.share({
           title: `Final Form: ${card.identity}`,
-          text: "Check out my Ultimate Game Card Form!",
+          text: `Check out my Ultimate Game Card Form! (${card.tier?.toUpperCase() || 'EPIC'})`,
           url: url,
         });
       } catch (err) {
@@ -168,11 +171,13 @@ export default function CardReveal() {
   };
 
   const handleDownloadFront = async () => {
+    soundManager.playSound('sfx_save_card', { volume: 0.7 });
     const identityStr = typeof card.identity === 'string' ? card.identity.replace(/\s+/g, '-') : 'Unknown';
     downloadImage(cardRef, `Final-Form-${identityStr}.png`);
   };
 
   const handleDownloadArt = async () => {
+    soundManager.playSound('sfx_save_card', { volume: 0.7 });
     try {
       const imageUrl = `${API_URL.replace('/api', '')}${card.image_url}`;
       const response = await fetch(imageUrl);
@@ -275,12 +280,34 @@ export default function CardReveal() {
         </div>
 
         <div className="grid grid-cols-2 gap-4 mt-4">
-          <button
-            onClick={() => setIsRemixModalOpen(true)}
-            className="col-span-2 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white px-4 py-3 rounded-xl font-bold hover:from-purple-500 hover:to-fuchsia-500 transition-colors shadow-[0_0_15px_rgba(147,51,234,0.3)]"
-          >
-            <Wand2 size={18} /> Remix / Reforge Form
-          </button>
+          {card.tier === 'mythic' ? (
+            <div className="col-span-2 flex flex-col items-center justify-center gap-1 bg-zinc-950/80 border border-amber-500/20 px-4 py-4 rounded-xl shadow-inner cursor-not-allowed">
+              <div className="flex items-center gap-2 font-black text-amber-500/60 uppercase tracking-widest text-sm">
+                <Crown size={16} /> Maximum Mythic Quality
+              </div>
+              <div className="text-[11px] font-bold text-zinc-500">This artifact cannot be reforged further.</div>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  if (window.confirm("Spend 3 Credits to Ascend this card to guaranteed Mythic quality?")) {
+                    handleRemix("Ascend this character to ultimate mythic quality.", "ascend", []);
+                  }
+                }}
+                className="col-span-2 flex items-center justify-center gap-2 bg-zinc-950 border border-amber-500/50 text-amber-400 px-4 py-4 rounded-xl font-black hover:bg-amber-500/10 transition-all shadow-[0_0_20px_rgba(245,158,11,0.15)] hover:shadow-[0_0_30px_rgba(245,158,11,0.3)]"
+              >
+                <Crown size={20} /> Ascend to Mythic <span className="text-amber-500/60 font-bold ml-1 text-xs px-2 py-0.5 rounded border border-amber-500/30">3 Credits</span>
+              </button>
+
+              <button
+                onClick={() => setIsRemixModalOpen(true)}
+                className="col-span-2 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white px-4 py-3 rounded-xl font-bold hover:from-purple-500 hover:to-fuchsia-500 transition-colors shadow-[0_0_15px_rgba(147,51,234,0.3)]"
+              >
+                <Wand2 size={18} /> Normal Reforge <span className="text-white/80 font-bold ml-1 text-xs px-2 py-0.5 rounded border border-white/20 bg-black/20">2 Credits</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={() => window.location.href = '/create'}

@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { Link } from "react-router-dom";
 import { Sparkles, Zap, Shield } from "lucide-react";
+import { soundManager } from '../lib/soundManager';
 
 export default function Home() {
   return (
@@ -24,6 +25,8 @@ export default function Home() {
 
       <Link
         to="/create"
+        onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.4 })}
+        onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
         className="group relative inline-flex items-center justify-center px-8 py-4 font-bold text-zinc-950 bg-white rounded-2xl overflow-hidden transition-transform active:scale-95 hover:scale-105"
       >
         <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

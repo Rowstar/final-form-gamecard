@@ -55,9 +55,15 @@ function generateShortId() {
   return `SG-${p1}-${p2}`;
 }
 
+function getTierPrompt(style: string) {
+  if (style === 'mythic') return "- HIGHEST COLLECTOR-GRADE REFINEMENT. Exclusive dimensional frame pressure / structural transcendence. Deepest internal energy architecture. Rare-feeling premium surface treatment. Unmistakable top-tier. NEVER stamp the word 'MYTHIC' directly on the card.";
+  if (style === 'legendary') return "- More intricate, more dimensional, richer frame intelligence. More prestige.";
+  return "- Already premium, polished, attractive. Strong finish. Controlled spectacle.";
+}
+
 router.post("/generate", authenticate, async (req: any, res: any) => {
   try {
-    const { theme, traits, intent, useCredit, displayOptions, photo, artStyle, customText, gender, exaggeration, humor } = req.body || {};
+    const { theme, traits, intent, cardType, displayOptions, photo, artStyle, customText, gender, exaggeration, humor } = req.body || {};
 
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id) as any;
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -70,37 +76,28 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
     const hasFreeGenerations = (freeGenerationsCount?.count || 0) < 2;
 
     let isPremium = false;
-    if (useCredit) {
+    let aestheticStyle = "legendary"; // Default
+
+    if (cardType === "mythic" || cardType === "final_boss") {
       if (user.credits <= 0) {
         return res.status(400).json({ error: "Not enough credits" });
       }
       isPremium = true;
+      aestheticStyle = "mythic"; // Both premium types utilize mythic rendering base
     } else {
       if (!hasFreeGenerations) {
         return res.status(400).json({ error: "No free generations left today. Please use a credit." });
       }
       isPremium = false;
+      aestheticStyle = "legendary";
     }
+
+    const isBoss = cardType === "final_boss" ? "Yes" : "No";
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey || apiKey.trim() === "") {
       console.error("API Key is not set or is empty");
       return res.status(500).json({ error: "API Key is not set. Please configure GEMINI_API_KEY." });
-    }
-
-    // Determine Aesthetic Style
-    const rand = Math.random();
-    let aestheticStyle = "rare"; // Keep DB values but treat as style
-
-    // Style distribution
-    if (rand < 0.03) {
-      aestheticStyle = "mythic";
-    } else if (rand < 0.15) {
-      aestheticStyle = "legendary";
-    } else if (rand < 0.45) {
-      aestheticStyle = "epic";
-    } else {
-      aestheticStyle = "rare";
     }
 
     // Initialize Gemini
@@ -121,7 +118,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
         const visionResponse = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: [
-            { text: "Analyze this face. Describe the facial architecture, defining features, expression, and hairstyle in 2-3 concise sentences. Focus solely on physical facial appearance, ignoring clothing and background. This description will be used to reconstruct a character likeness." },
+            { text: "Analyze this face. Describe the facial architecture, defining features, expression, age impression, and hairstyle in 2-3 concise sentences. Focus solely on physical facial appearance, ignoring clothing and background. This description will be explicitly used to reconstruct the person as a Final Form fantasy/sci-fi character card." },
             { inlineData: { data: base64Data, mimeType } }
           ]
         });
@@ -159,8 +156,8 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
         - Art Style Theme: ${artStyle || "Premium Digital Art"}
         - Exaggeration Level: ${exaggeration || 5}/10 (1=Realistic, 10=God-Tier Absurdly Overscaled Powers)
         - Humor / Satire Level: ${humor || 5}/10 (1=Grimdark/Serious, 10=Troll/Parody/Silly)
-        - Aesthetic Style: ${aestheticStyle}
-        - Final Boss Mode: ${useCredit ? "Yes" : "No"}
+        - Aesthetic Quality Target: ${aestheticStyle}
+        - Final Boss Class: ${isBoss}
 
         USER CUSTOM OVERRIDES:
         ${customOverrides}
@@ -169,8 +166,8 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
         
         RULES:
         - name: The dominant avatar name (max 22 chars).
-        - animalBase: The primary species or form influence (e.g. "Cosmic Human", "Demon Lord", "Mecha Dragon", "Celestial Seraph"). Be creative but descriptive.
-        - animalForm: The Archetype/Title of this form (e.g. "Infernal Tyrant", "Apex Predator", "Reality Weaver").
+        - formBase: The primary species, concept, or foundation of this form (e.g. "Cosmic Human", "Demon Lord", "Mecha Dragon", "Celestial Seraph"). Be creative but descriptive.
+        - formTitle: The Archetype/Title of this form (e.g. "Infernal Tyrant", "Apex Predator", "Reality Weaver").
         - energyCore: The primary element or energy source (e.g. "Void Matter", "Holy Fire", "Quantum Lightning").
         - signatureWeapon: The name of their primary weapon or visual artifact (e.g. "Blade of the Cosmos", "Void Scepter"). MUST be present.
         - archetype: The class or combat role (e.g. "Vanguard", "Spellblade", "Assassin", "Juggernaut").
@@ -199,8 +196,8 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
               type: Type.OBJECT,
               properties: {
                 name: { type: Type.STRING },
-                animalBase: { type: Type.STRING },
-                animalForm: { type: Type.STRING },
+                formBase: { type: Type.STRING },
+                formTitle: { type: Type.STRING },
                 energyCore: { type: Type.STRING },
                 archetype: { type: Type.STRING },
                 signatureWeapon: { type: Type.STRING },
@@ -232,7 +229,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
                 resistances: { type: Type.STRING },
                 guidanceLine: { type: Type.STRING }
               },
-              required: ["name", "animalBase", "animalForm", "energyCore", "archetype", "signatureWeapon", "palette", "poseVariant", "composition", "ultimateAbility", "stats", "passives", "weakness", "resistances", "guidanceLine"]
+              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "signatureWeapon", "palette", "poseVariant", "composition", "ultimateAbility", "stats", "passives", "weakness", "resistances", "guidanceLine"]
             }
           }
         });
@@ -252,7 +249,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
         continue;
       }
 
-      if (!cardData.name || !cardData.animalBase) continue;
+      if (!cardData.name || !cardData.formBase) continue;
 
       // Hard Locks
       const nameExists = db.prepare("SELECT 1 FROM cards WHERE identity = ?").get(cardData.name);
@@ -261,7 +258,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
       const abilityExists = db.prepare("SELECT 1 FROM cards WHERE ultimate_title = ?").get(cardData.ultimateAbility?.name);
       if (abilityExists) continue;
 
-      dnaHash = `${aestheticStyle}-${cardData.animalBase}-${cardData.energyCore}-${cardData.archetype}-${cardData.palette}-${cardData.poseVariant}`;
+      dnaHash = `${aestheticStyle}-${cardData.formBase}-${cardData.energyCore}-${cardData.archetype}-${cardData.palette}-${cardData.poseVariant}`;
       const dnaExists = db.prepare("SELECT 1 FROM cards WHERE dna_hash = ?").get(dnaHash);
       if (dnaExists) continue;
 
@@ -278,7 +275,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
 
     const stats = {
       aestheticStyle: aestheticStyle,
-      animalForm: cardData.animalForm, // we'll use this for Subtitle/Title
+      formTitle: cardData.formTitle, // we'll use this for Subtitle/Title
       ultimateAbility: cardData.ultimateAbility,
       guidanceLine: cardData.guidanceLine, // Flavor text
       rpgStats: cardData.stats,
@@ -287,7 +284,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
       resistances: cardData.resistances,
       weakness: cardData.weakness,
       displayOptions: displayOptions,
-      inputs: { theme, gender, traits, intent, useCredit, artStyle, customText }
+      inputs: { theme, gender, traits, intent, cardType, artStyle, customText }
     };
 
     // Generate Image using Gemini
@@ -297,7 +294,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
 
       let textSystemPrompt = `TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):\n`;
       textSystemPrompt += `[CARD NAME – dominant epic cinematic font]: ${cardData.name}\n`;
-      textSystemPrompt += `[SUBTITLE – below name, sleek font]: ${cardData.animalForm}\n`;
+      textSystemPrompt += `[SUBTITLE – below name, sleek font]: ${cardData.formTitle}\n`;
 
       if (options.ultimate) {
         textSystemPrompt += `[WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:\n`;
@@ -350,14 +347,14 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
         }
       }
 
-      const isBoss = useCredit ? "ULTIMATE FINAL BOSS MODE ENABLED. Maximum visual intimidation and dramatic dominance in the composition. Strip away standard borders, make the character break out of the frame." : "";
+      const bossPromptDirective = cardType === "final_boss" ? "FINAL BOSS PROTOCOL ENABLED: Maximum visual intimidation, dramatic dominance, and apex-being endgame authority. Create a spectacular, menacing, and iconic final-phase silhouette. Strip away standard borders, make the character violently break out of the frame geometry." : "";
 
       const imagePrompt = `A premium, full-art game trading card featuring an Ultimate/Final Form Character.
 Theme: ${(traits || []).join(", ") || "Epic"}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
 Art Style Direction: ${artStyle || "Premium Digital Art"}.
 Exaggeration Scale: ${exaggeration || 5}/10. ${exaggeration >= 8 ? "PROPORTIONS AND ENERGY SHOULD BE ABSURDLY MASSIVE AND GOD-TIER." : "Keep proportions somewhat grounded."}
 Humor/Satire Scale: ${humor || 5}/10. ${humor >= 8 ? "RENDER WITH A PARODY, SILLY, OR HIGHLY MEME-LIKE AESTHETIC WHILE MAINTAINING HIGH QUALITY." : "Render with serious epic drama."}
-Species/Form: ${cardData.animalBase}.
+Species/Form: ${cardData.formBase}.
 Energy Core (Element): ${cardData.energyCore}.
 Class/Archetype: ${cardData.archetype}.
 Signature Weapon: ${cardData.signatureWeapon || "Not specified, hands free"}. MAKE SURE THEY ARE VISUALLY HOLDING OR DISPLAYING THIS WEAPON IF PROVIDED.
@@ -365,24 +362,26 @@ Palette: ${cardData.palette}.
 Pose: ${cardData.poseVariant}.
 Composition: ${cardData.composition}.
 ${facialFeatures ? `Facial Features & Character Likeness (CRITICAL MATCH): ${facialFeatures}\nThe character portrayed MUST heavily resemble this physical facial description.\n` : ""}
-${isBoss}
+${bossPromptDirective}
 
 STRICT CARD GENERATION RULES:
 - Strict vertical 2:3 portrait format.
 - Card fills entire frame. No outer margin. No extended cinematic background. No horizontal expansion.
 - Border must be continuous and structural. No inset margins. No decorative partial frames. Edge-flush perimeter. Structural perimeter must be fully connected.
 
-AESTHETIC STYLE LOCK:
-- The card must feel Legendary or Mythic in quality.
-- Use the palette (${cardData.palette}) and theme (${currentTheme}) to determine the border and energy colors.
+AESTHETIC STYLE LOCK (${aestheticStyle} tier):
+- The card must feel incredibly premium, intricate, and luxury collector-grade.
+- Higher tiers emphasize extreme detailing, dimensional frame sophistication, wow-factor density, and impressive composition drama.
+- Use the palette (${cardData.palette}) and theme (${currentTheme}) to determine the border and energy colors. No fixed tier colors.
+${getTierPrompt(aestheticStyle)}
 - Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
 ${textSystemPrompt}
 
-No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-rare holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
+No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-premium holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
 
       const imageResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-3.1-flash-image-preview',
         contents: {
           parts: [{ text: imagePrompt }],
         },
@@ -412,11 +411,10 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
     }
 
     // Determine border based on theme
-    let borderId = "gilded_relic";
+    let borderId = "arcane_sapphire";
     if (aestheticStyle === "mythic") borderId = "obsidian_prism";
     else if (aestheticStyle === "legendary") borderId = "gilded_relic";
-    else if (aestheticStyle === "epic") borderId = "arcane_sapphire";
-    else borderId = "emerald_royal";
+    else borderId = "arcane_sapphire";
 
     // Create Verification Hash
     const hashContent = JSON.stringify(cardData) + shortId;
@@ -436,7 +434,7 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       req.user.id,
       imageUrl,
       cardData.name || "Unknown Avatar",
-      cardData.animalForm || "Unknown Form",
+      cardData.formTitle || "Unknown Form",
       cardData.ultimateAbility?.name || "Unknown Ability",
       cardData.weakness || "",
       JSON.stringify(stats),
@@ -445,7 +443,7 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       aestheticStyle,
       shortId,
       verificationHash,
-      cardData.animalBase || "",
+      cardData.formBase || "",
       currentTheme,
       cardData.energyCore || "",
       cardData.archetype || "",
@@ -477,7 +475,7 @@ router.get("/verify/:shortId", (req: any, res: any) => {
     `).get(shortId) as any;
 
     if (!card) {
-      return res.status(404).json({ error: "Guide not found or unverified" });
+      return res.status(404).json({ error: "Card not found or unverified" });
     }
 
     try {
@@ -488,11 +486,12 @@ router.get("/verify/:shortId", (req: any, res: any) => {
 
     res.json({
       verified: true,
-      guide: {
+      card: {
         id: card.id,
         shortId: card.short_id,
         name: card.identity,
-        animalForm: card.strengths,
+        formBase: card.animal_base,
+        formTitle: card.strengths,
         aestheticStyle: card.tier,
         createdAt: card.created_at,
         owner: card.email.split('@')[0],
@@ -524,6 +523,8 @@ router.get("/my-cards", authenticate, (req: any, res: any) => {
           card.custom_text_overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides;
         } catch (e) { }
       }
+      card.formBase = card.animal_base;
+      card.formTitle = card.strengths;
       return card;
     });
     res.json({ cards: parsedCards });
@@ -558,6 +559,8 @@ router.get("/user/:userId", (req: any, res: any) => {
           card.custom_text_overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides;
         } catch (e) { }
       }
+      card.formBase = card.animal_base;
+      card.formTitle = card.strengths;
       return card;
     });
 
@@ -591,6 +594,8 @@ router.get("/:id", (req: any, res: any) => {
         card.custom_text_overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides;
       } catch (e) { }
     }
+    card.formBase = card.animal_base;
+    card.formTitle = card.strengths;
     res.json({ card });
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });
@@ -671,21 +676,18 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
 
     // Aesthetic Style (Determine early for DNA hash)
     const styleRoll = Math.random() * 100;
-    let aestheticStyle = "rare";
-    let borderId = "emerald_royal";
+    let aestheticStyle = "epic";
+    let borderId = "arcane_sapphire";
 
-    if (styleRoll > 95) {
+    if (styleRoll > 85) {
       aestheticStyle = "mythic";
       borderId = "obsidian_prism";
-    } else if (styleRoll > 75) {
+    } else if (styleRoll > 50) {
       aestheticStyle = "legendary";
       borderId = "gilded_relic";
-    } else if (styleRoll > 40) {
+    } else {
       aestheticStyle = "epic";
       borderId = "arcane_sapphire";
-    } else {
-      aestheticStyle = "rare";
-      borderId = "emerald_royal";
     }
 
     while (attempts < maxAttempts && !success) {
@@ -693,55 +695,54 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
 
       // Get recent cards
       const recentCards = db.prepare("SELECT * FROM cards ORDER BY created_at DESC LIMIT 7").all() as any[];
-      const recentAnimals = recentCards.map(c => c.animal_base).filter(Boolean);
       const recentCompositions = recentCards.slice(0, 5).map(c => c.composition).filter(Boolean);
 
       let prompt = "";
       if (type === "merge") {
         prompt = `
-          You are a master guide forging a new Spirit Animal Guide by merging two existing guides.
-          Guide 1: ${cards[0].identity} (Form: ${cards[0].strengths})
-          Guide 2: ${cards[1].identity} (Form: ${cards[1].strengths})
+          You are forging a new Final Form character by merging two existing forms.
+          Form 1: ${cards[0].identity} (Form: ${cards[0].strengths})
+          Form 2: ${cards[1].identity} (Form: ${cards[1].strengths})
 
-          Create a new, reflective guide that combines aspects of both.
+          Create a new, ultimate character that combines aspects of both.
           Return the response as a JSON object matching this schema:
           {
-            "name": "string (The new guide name, max 22 chars)",
-            "animalBase": "string (The base animal species. Prefer uncommon but symbolically fitting animals. Avoid default archetypes like lion, wolf, eagle, turtle unless strongly justified. Encourage ecological diversity. Allow rare mythic creatures sparingly when the user's language suggests transformation or threshold states. Do not assign fixed archetypes to species. Allow interpretation to vary per generation.)",
-            "animalForm": "string (The combined animal form, e.g., 'Celestial Stag')",
+            "name": "string (The new character name, max 22 chars)",
+            "formBase": "string (The base species or concept. Be creative but descriptive.)",
+            "formTitle": "string (The combined archetype/title, e.g., 'Celestial Tyrant')",
             "energyCore": "string (The core energy type)",
             "archetype": "string (The archetype)",
             "palette": "string (The primary color dominance)",
             "poseVariant": "string (The pose variant)",
-            "composition": "string (Must be one of: 'Centered floating', 'Dynamic diagonal', 'Side profile', 'Grounded stance', 'Rising ascension pose')",
+            "composition": "string (Must be one of: 'Centered floating', 'Dynamic action pose', 'Intimidating low angle', 'Heroic standing')",
             "ultimateAbility": {
-              "name": "string (A reflective title for this guide's wisdom)",
-              "description": "string (One strong paragraph reflection explaining how it guides or empowers the user. Grounded, reflective, precise, slightly mystical but not dramatic. No over-the-top fantasy language.)"
+              "name": "string (A breathtaking title for this ultimate power)",
+              "description": "string (A dramatic combat/lore description explaining the devastating or empowering effect.)"
             },
-            "guidanceLine": "string (Optional concise closing line that feels earned)"
+            "guidanceLine": "string (A badass flavor text / quote spoken by the character)"
           }
         `;
       } else {
         prompt = `
-          You are a master guide reforging an existing guide into a new, evolved form.
-          Original Guide: ${cards[0].identity} (Form: ${cards[0].strengths})
+          You are reforging an existing character into a new, evolved Final Form.
+          Original Form: ${cards[0].identity} (Form: ${cards[0].strengths})
 
-          Create a new, evolved version of this guide. It should be related but distinctly different and more profound.
+          Create a new, evolved version of this character. It should be related but distinctly different and far more powerful.
           Return the response as a JSON object matching this schema:
           {
-            "name": "string (The new guide name, max 22 chars)",
-            "animalBase": "string (The base animal species. Prefer uncommon but symbolically fitting animals. Avoid default archetypes like lion, wolf, eagle, turtle unless strongly justified. Encourage ecological diversity. Allow rare mythic creatures sparingly when the user's language suggests transformation or threshold states. Do not assign fixed archetypes to species. Allow interpretation to vary per generation.)",
-            "animalForm": "string (The evolved animal form)",
+            "name": "string (The new character name, max 22 chars)",
+            "formBase": "string (The base species or concept. Be creative but descriptive.)",
+            "formTitle": "string (The evolved archetype/title)",
             "energyCore": "string (The core energy type)",
             "archetype": "string (The archetype)",
             "palette": "string (The primary color dominance)",
             "poseVariant": "string (The pose variant)",
-            "composition": "string (Must be one of: 'Centered floating', 'Dynamic diagonal', 'Side profile', 'Grounded stance', 'Rising ascension pose')",
+            "composition": "string (Must be one of: 'Centered floating', 'Dynamic action pose', 'Intimidating low angle', 'Heroic standing')",
             "ultimateAbility": {
-              "name": "string (A reflective title for this guide's wisdom)",
-              "description": "string (One strong paragraph reflection explaining how it guides or empowers the user. Grounded, reflective, precise, slightly mystical but not dramatic. No over-the-top fantasy language.)"
+              "name": "string (A breathtaking title for this ultimate power)",
+              "description": "string (A dramatic combat/lore description explaining the devastating or empowering effect.)"
             },
-            "guidanceLine": "string (Optional concise closing line that feels earned)"
+            "guidanceLine": "string (A badass flavor text / quote spoken by the character)"
           }
         `;
       }
@@ -757,8 +758,8 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
               type: Type.OBJECT,
               properties: {
                 name: { type: Type.STRING },
-                animalBase: { type: Type.STRING },
-                animalForm: { type: Type.STRING },
+                formBase: { type: Type.STRING },
+                formTitle: { type: Type.STRING },
                 energyCore: { type: Type.STRING },
                 archetype: { type: Type.STRING },
                 palette: { type: Type.STRING },
@@ -774,7 +775,7 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
                 },
                 guidanceLine: { type: Type.STRING }
               },
-              required: ["name", "animalBase", "animalForm", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
+              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
             }
           }
         });
@@ -794,7 +795,7 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
         continue;
       }
 
-      if (!aiData.name || !aiData.animalBase) continue;
+      if (!aiData.name || !aiData.formBase) continue;
 
       // Hard Locks
       const nameExists = db.prepare("SELECT 1 FROM cards WHERE identity = ?").get(aiData.name);
@@ -803,22 +804,11 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
       const abilityExists = db.prepare("SELECT 1 FROM cards WHERE ultimate_title = ?").get(aiData.ultimateAbility?.name);
       if (abilityExists) continue;
 
-      dnaHash = `${aestheticStyle}-${aiData.animalBase}-${aiData.energyCore}-${aiData.archetype}-${aiData.palette}-${aiData.poseVariant}`;
+      dnaHash = `${aestheticStyle}-${aiData.formBase}-${aiData.energyCore}-${aiData.archetype}-${aiData.palette}-${aiData.poseVariant}`;
       const dnaExists = db.prepare("SELECT 1 FROM cards WHERE dna_hash = ?").get(dnaHash);
       if (dnaExists) continue;
 
-      // Soft Ecology Rules
-      const animalCount = recentAnimals.filter(a => a === aiData.animalBase).length;
-      if (animalCount >= 1) {
-        const sameAnimalCards = recentCards.filter(c => c.animal_base === aiData.animalBase);
-        const conflict = sameAnimalCards.some(c =>
-          c.tier === aestheticStyle ||
-          c.energy_core === aiData.energyCore ||
-          c.pose_variant === aiData.poseVariant ||
-          c.palette === aiData.palette
-        );
-        if (conflict) continue;
-      }
+
 
       if (recentCompositions.includes(aiData.composition)) continue;
 
@@ -838,11 +828,11 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
     const shortId = generateShortId();
 
     // Generate Image
-    const imagePrompt = `A complete, fully rendered collectible trading card of a Spirit Animal Guide.
-Theme: Evolved/Merged. Tone: Inspirational, Mythic, Safe.
-Animal Form: ${aiData.animalForm}.
+    const imagePrompt = `A premium, full-art game trading card featuring a forged Ultimate/Final Form Character.
+Theme: Evolved/Merged. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
+Form/Species: ${aiData.formBase}.
+Class/Archetype: ${aiData.archetype}.
 Energy Core: ${aiData.energyCore}.
-Archetype: ${aiData.archetype}.
 Palette: ${aiData.palette}.
 Pose Variant: ${aiData.poseVariant}.
 Composition: ${aiData.composition}.
@@ -852,25 +842,25 @@ STRICT CARD GENERATION RULES:
 - Card fills entire frame. No outer margin. No extended cinematic background. No horizontal expansion.
 - Border must be continuous and structural. No inset margins. No decorative partial frames. Edge-flush perimeter. Structural perimeter must be fully connected.
 
-AESTHETIC STYLE LOCK (${aestheticStyle}):
-${aestheticStyle === 'rare' ? '- Clean silver structural frame. Subtle contained glow. Minimal energy.' : ''}
-${aestheticStyle === 'epic' ? '- Arcane violet border. Enchanted glow contained within frame. Slight internal aura depth.' : ''}
-${aestheticStyle === 'legendary' ? '- Radiant gold structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay.' : ''}
-${aestheticStyle === 'mythic' ? '- Engineered obsidian structural perimeter. Crimson and radiant white internal energy veins. Dimensional pressure effects. Continuous unbroken edge-flush perimeter.' : ''}
+AESTHETIC STYLE LOCK (${aestheticStyle} tier):
+- The card must feel incredibly premium, intricate, and luxury collector-grade.
+- Higher tiers emphasize extreme detailing, dimensional frame sophistication, wow-factor density, and impressive composition drama.
+- Use the palette (${aiData.palette}) to determine the border and energy colors. No fixed tier colors.
+${getTierPrompt(aestheticStyle)}
+- Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
 TEXT SYSTEM (Must be generated inside the image itself, embedded natively into the lower third card layout panel):
 Required layout hierarchy:
 [NAME – dominant epic serif font]: ${aiData.name}
-[SUBTITLE – refined technical sans serif]: ${aiData.animalForm}
+[SUBTITLE – refined technical sans serif]: ${aiData.formTitle}
 [ULTIMATE ABILITY – small caps header]: ${aiData.ultimateAbility?.name || ''}
 [Ability Description – clean legible text]: ${aiData.ultimateAbility?.description || ''}
 [Guidance Line – short italic typography at the very bottom]: ${aiData.guidanceLine || ''}
 
-GUIDE ID PLACEMENT:
-- Print the Guide ID prominently: ${shortId}
+- Print the Card ID prominently: ${shortId}
 - Treat it like a genuine card serial number stamped into the border.
 
-The output must look like a premium collectible card, engineered, authoritative, immersive, dimensional, collectible, and rare. The generated text must be perfectly legible and formally structured as if designed by a UI artist.`;
+The output must look like a premium collectible card, engineered, authoritative, immersive, dimensional, collectible, and unique. The generated text must be perfectly legible and formally structured as if designed by a UI artist.`;
 
     let imageUrl = "";
     try {
@@ -920,7 +910,7 @@ The output must look like a premium collectible card, engineered, authoritative,
       newCardId,
       userId,
       aiData.name,
-      aiData.animalForm,
+      aiData.formTitle,
       "",
       aiData.ultimateAbility?.description || "",
       imageUrl,
@@ -931,7 +921,7 @@ The output must look like a premium collectible card, engineered, authoritative,
       0,
       shortId,
       verificationHash,
-      aiData.animalBase || "",
+      aiData.formBase || "",
       "Evolved/Merged",
       aiData.energyCore || "",
       aiData.archetype || "",
@@ -957,6 +947,8 @@ The output must look like a premium collectible card, engineered, authoritative,
 
     const newCard = db.prepare("SELECT * FROM cards WHERE id = ?").get(newCardId) as any;
     newCard.stats = JSON.parse(newCard.stats);
+    newCard.formBase = newCard.animal_base;
+    newCard.formTitle = newCard.strengths;
 
     res.json({ card: newCard });
   } catch (error) {
@@ -1159,9 +1151,13 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
     }
 
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
-    const cost = 2; // Remixing costs 2 credits
+    const cost = mode === "ascend" ? 3 : 2; // Ascending costs 3 credits, Remixing costs 2 credits
     if (!user || user.credits < cost) {
       return res.status(400).json({ error: `Not enough credits. ${cost} credits required.` });
+    }
+
+    if (card.tier === 'mythic' && mode !== "ascend") {
+      return res.status(400).json({ error: "This card is already Mythic and cannot be remixed through the standard flow." });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -1185,10 +1181,15 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
     let success = false;
 
     // Preserve style or upgrade if Boss mode
-    let aestheticStyle = card.tier || "rare";
-    let borderId = card.border_id || "emerald_royal";
+    let aestheticStyle = card.tier === "rare" ? "epic" : (card.tier || "epic");
+    let borderId = card.border_id === "emerald_royal" ? "arcane_sapphire" : (card.border_id || "arcane_sapphire");
 
     if (mode === "boss" && aestheticStyle !== "mythic") {
+      aestheticStyle = "mythic";
+      borderId = "obsidian_prism";
+    }
+
+    if (mode === "ascend") {
       aestheticStyle = "mythic";
       borderId = "obsidian_prism";
     }
@@ -1199,12 +1200,12 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
       const prompt = `
         This is a remix/reforge of an existing Final Form card. 
         Preserve the same core character identity, visual continuity, and likeness. 
-        Keep all strong successful aspects unless the user explicitly requests changes. 
+        ${mode === 'ascend' ? 'This is a pure Mythic Ascension. Do not generate a different person, merely ascend them to the ultimate top-tier quality.' : 'Keep all strong successful aspects unless the user explicitly requests changes.'}
         Apply only the requested refinements. The result should feel like an upgraded or revised version of the same character, not a completely new person.
 
         ORIGINAL CHARACTER DATA:
         - Name: ${card.identity}
-        - Animal Base/Form: ${card.animal_base} / ${card.strengths}
+        - Form Base/Title: ${card.animal_base} / ${card.strengths}
         - Energy Core: ${card.energy_core}
         - Archetype: ${card.archetype}
         - Pose/Composition: ${card.pose_variant} / ${card.composition}
@@ -1217,9 +1218,9 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
 
         Generate the revised character details based on the above. The output must be strict JSON matching this schema:
         {
-          "name": "string (The guide name, max 22 chars)",
-          "animalBase": "string (The base animal species)",
-          "animalForm": "string (The animal form/title)",
+          "name": "string (The new character name, max 22 chars)",
+          "formBase": "string (The base form species or concept)",
+          "formTitle": "string (The form archetype/title)",
           "energyCore": "string (The core energy type)",
           "archetype": "string (The archetype)",
           "palette": "string (The primary color dominance)",
@@ -1244,8 +1245,8 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
               type: Type.OBJECT,
               properties: {
                 name: { type: Type.STRING },
-                animalBase: { type: Type.STRING },
-                animalForm: { type: Type.STRING },
+                formBase: { type: Type.STRING },
+                formTitle: { type: Type.STRING },
                 energyCore: { type: Type.STRING },
                 archetype: { type: Type.STRING },
                 palette: { type: Type.STRING },
@@ -1261,7 +1262,7 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
                 },
                 guidanceLine: { type: Type.STRING }
               },
-              required: ["name", "animalBase", "animalForm", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
+              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
             }
           }
         });
@@ -1281,9 +1282,9 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
         continue;
       }
 
-      if (!aiData.name || !aiData.animalBase) continue;
+      if (!aiData.name || !aiData.formBase) continue;
 
-      dnaHash = `${aestheticStyle}-${aiData.animalBase}-${aiData.energyCore}-${aiData.archetype}-${aiData.palette}-${aiData.poseVariant}`;
+      dnaHash = `${aestheticStyle}-${aiData.formBase}-${aiData.energyCore}-${aiData.archetype}-${aiData.palette}-${aiData.poseVariant}`;
       success = true;
     }
 
@@ -1293,8 +1294,47 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
 
     const shortId = generateShortId();
 
-    const imagePrompt = `A premium, full-art game trading card featuring a Remixed/Evolved Character.
-Theme: ${aiData.animalBase}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
+    let imagePrompt;
+
+    if (mode === "ascend") {
+      imagePrompt = `A premium, full-art game trading card featuring an Ascended Mythic Character.
+Theme: ${aiData.formBase}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
+Energy Core (Element): ${aiData.energyCore}.
+Class/Archetype: ${aiData.archetype}.
+Palette: ${aiData.palette}.
+Pose: ${aiData.poseVariant}.
+Composition: ${aiData.composition}.
+
+ASCENSION DIRECTIVE:
+This is an ascension of an existing Final Form card into a guaranteed Mythic-quality version of the same character.
+Preserve the same core identity, visual continuity, and successful design elements. Do not generate a different person.
+Upgrade the card into unmistakable top-tier collector-grade mythic quality through structural sophistication, dimensional frame pressure, premium finish, and extraordinary polish.
+Do NOT explicitly stamp the word "Mythic" anywhere on the card.
+
+STRICT CARD GENERATION RULES:
+- Strict vertical 2:3 portrait format.
+- Card fills entire frame. No outer margin. No extended cinematic background. No horizontal expansion.
+- Border must be continuous and structural. No inset margins. No decorative partial frames. Edge-flush perimeter. Structural perimeter must be fully connected.
+
+AESTHETIC STYLE LOCK (${aestheticStyle} tier):
+- The card must feel incredibly premium, intricate, and luxury collector-grade.
+- Higher tiers emphasize extreme detailing, dimensional frame sophistication, wow-factor density, and impressive composition drama.
+- Use the palette (${aiData.palette}) to determine the border and energy colors. No fixed tier colors.
+${getTierPrompt(aestheticStyle)}
+- Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
+
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):
+[CARD NAME – dominant epic cinematic font]: ${aiData.name}
+[SUBTITLE – below name, sleek font]: ${aiData.formTitle}
+[WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:
+[Header]: ${aiData.ultimateAbility?.name || ''}
+[Description Text]: ${aiData.ultimateAbility?.description || ''}
+[Flavor Text / Quote – italics at the very bottom]: "${aiData.guidanceLine || ''}"
+
+No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-premium holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
+    } else {
+      imagePrompt = `A premium, full-art game trading card featuring a Remixed/Evolved Character.
+Theme: ${aiData.formBase}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
 Energy Core (Element): ${aiData.energyCore}.
 Class/Archetype: ${aiData.archetype}.
 Palette: ${aiData.palette}.
@@ -1311,20 +1351,28 @@ STRICT CARD GENERATION RULES:
 - Card fills entire frame. No outer margin. No extended cinematic background. No horizontal expansion.
 - Border must be continuous and structural. No inset margins. No decorative partial frames. Edge-flush perimeter. Structural perimeter must be fully connected.
 
+AESTHETIC STYLE LOCK (${aestheticStyle} tier):
+- The card must feel incredibly premium, intricate, and luxury collector-grade.
+- Higher tiers emphasize extreme detailing, dimensional frame sophistication, wow-factor density, and impressive composition drama.
+- Use the palette (${aiData.palette}) to determine the border and energy colors. No fixed tier colors.
+${getTierPrompt(aestheticStyle)}
+- Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
+
 TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):
 [CARD NAME – dominant epic cinematic font]: ${aiData.name}
-[SUBTITLE – below name, sleek font]: ${aiData.animalForm}
+[SUBTITLE – below name, sleek font]: ${aiData.formTitle}
 [WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:
 [Header]: ${aiData.ultimateAbility?.name || ''}
 [Description Text]: ${aiData.ultimateAbility?.description || ''}
 [Flavor Text / Quote – italics at the very bottom]: "${aiData.guidanceLine || ''}"
 
-No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-rare holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
+No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-premium holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
+    }
 
     let imageUrl = "";
     try {
       const imageResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-3.1-flash-image-preview',
         contents: {
           parts: [{ text: imagePrompt }],
         },
@@ -1387,7 +1435,7 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       newCardId,
       userId,
       aiData.name,
-      aiData.animalForm,
+      aiData.formTitle,
       originalStats.weakness || "",
       aiData.ultimateAbility?.description || "",
       imageUrl,
@@ -1398,7 +1446,7 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       0,
       shortId,
       verificationHash,
-      aiData.animalBase || "",
+      aiData.formBase || "",
       card.theme || "Remixed Form",
       aiData.energyCore || "",
       aiData.archetype || "",
@@ -1425,6 +1473,8 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
 
     const newCard = db.prepare("SELECT * FROM cards WHERE id = ?").get(newCardId) as any;
     newCard.stats = JSON.parse(newCard.stats);
+    newCard.formBase = newCard.animal_base;
+    newCard.formTitle = newCard.strengths;
 
     res.json({ card: newCard });
   } catch (error) {

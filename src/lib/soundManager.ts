@@ -50,7 +50,13 @@ export class SoundManager {
         this.enabled = enabled;
         localStorage.setItem('final_form_sound_enabled', enabled.toString());
         if (!enabled) {
-            this.stopAll();
+            for (const audio of this.loops.values()) {
+                audio.pause();
+            }
+        } else {
+            for (const audio of this.loops.values()) {
+                audio.play().catch(() => { });
+            }
         }
         // Dispatch event so React components can update UI
         window.dispatchEvent(new Event('soundSettingsChanged'));
@@ -82,13 +88,15 @@ export class SoundManager {
     }
 
     public playLoop(name: keyof typeof this.sounds, options?: { volume?: number }) {
-        if (!this.enabled || !this.sounds[name]) return;
-
         // Only allow theme song loop to play
         if (name !== 'sfx_theme_song') return;
 
         if (this.loops.has(name)) {
-            return; // Already playing
+            const audio = this.loops.get(name)!;
+            if (this.enabled && audio.paused) {
+                audio.play().catch(() => { });
+            }
+            return;
         }
 
         try {
@@ -96,15 +104,15 @@ export class SoundManager {
             audio.volume = Math.min(1, Math.max(0, (options?.volume ?? 1) * this.volume));
             audio.loop = true;
 
-            const playPromise = audio.play();
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    this.loops.set(name, audio);
-                }).catch(_e => {
-                    // Ignore error gracefully
-                });
-            } else {
-                this.loops.set(name, audio);
+            this.loops.set(name, audio);
+
+            if (this.enabled) {
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(_e => {
+                        // Ignore error gracefully
+                    });
+                }
             }
         } catch (e) {
             // Ignore creation error

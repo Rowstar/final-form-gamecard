@@ -3,7 +3,7 @@ import { useNavigate, Link, useParams } from "react-router-dom";
 import { fetchWithAuth, clearAuthToken, API_URL } from "../lib/api.ts";
 import Card from "../components/Card.tsx";
 import { motion } from "motion/react";
-import { LogOut, Sparkles, Zap, Share2, PlusCircle } from "lucide-react";
+import { LogOut, Sparkles, Zap, Share2, PlusCircle, Swords } from "lucide-react";
 import { soundManager } from '../lib/soundManager';
 
 export default function Profile() {
@@ -148,8 +148,20 @@ export default function Profile() {
       </div>
 
       <div className="mb-8 flex justify-between items-end">
-        <h2 className="text-xl font-bold">{isOwner ? "Your Collection" : "Collection"}</h2>
-        <span className="text-sm text-zinc-500">{cards.length} Cards</span>
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold">{isOwner ? "Your Collection" : "Collection"}</h2>
+          <span className="text-sm text-zinc-500">{cards.length} Cards</span>
+        </div>
+        {isOwner && cards.length >= 2 && (
+          <Link
+            to="/duel"
+            onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
+            onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.3 })}
+            className="flex items-center gap-2 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white px-4 py-2 rounded-xl font-bold shadow-[0_0_15px_rgba(239,68,68,0.3)] transition-all text-sm uppercase tracking-wider"
+          >
+            <Swords size={16} /> Enter Arena
+          </Link>
+        )}
       </div>
 
       {cards.length === 0 ? (

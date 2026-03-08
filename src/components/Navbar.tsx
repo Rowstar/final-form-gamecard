@@ -11,6 +11,7 @@ export default function Navbar() {
   const [addingCredits, setAddingCredits] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(soundManager.isEnabled());
   const [volume, setVolume] = useState(soundManager.getVolume());
+  const [showSlider, setShowSlider] = useState(false);
 
   const fetchUser = () => {
     if (getAuthToken()) {
@@ -108,9 +109,17 @@ export default function Navbar() {
             </div>
           )}
 
-          <div className="relative flex items-center group">
+          <div
+            className="relative flex items-center"
+            onMouseEnter={() => setShowSlider(true)}
+            onMouseLeave={() => setShowSlider(false)}
+          >
             <button
-              onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.3 }); handleToggleSound(); }}
+              onClick={() => {
+                soundManager.playSound('sfx_ui_click', { volume: 0.3 });
+                handleToggleSound();
+                setShowSlider(!showSlider);
+              }}
               onMouseEnter={() => soundManager.playSound('sfx_ui_hover', { volume: 0.2 })}
               className="flex flex-col items-center gap-1 text-zinc-400 hover:text-white transition-colors sm:flex-row sm:gap-2 mr-2"
               title={soundEnabled ? "Mute Sound" : "Enable Sound"}
@@ -119,17 +128,21 @@ export default function Navbar() {
               <span className="sr-only">Toggle Sound</span>
             </button>
 
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 hidden group-hover:flex bg-zinc-800 border border-white/10 rounded-lg p-3 shadow-xl origin-bottom transition-all">
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={volume}
-                onChange={handleVolumeInput}
-                className="w-24 accent-emerald-500 h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer"
-              />
-            </div>
+            {showSlider && (
+              <div className="absolute bottom-[100%] left-1/2 -translate-x-1/2 pb-4 sm:bottom-auto sm:top-[100%] sm:pb-0 sm:pt-4 flex origin-bottom sm:origin-top animate-in fade-in zoom-in-95 duration-200 z-[60]">
+                <div className="bg-zinc-800 border border-white/10 rounded-lg p-3 shadow-xl pointer-events-auto">
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={volume}
+                    onChange={handleVolumeInput}
+                    className="w-24 accent-emerald-500 h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <Link

@@ -12,6 +12,7 @@ import CardReveal from "./pages/CardReveal.tsx";
 import Profile from "./pages/Profile.tsx";
 import Auth from "./pages/Auth.tsx";
 import ForgeLab from "./pages/ForgeLab.tsx";
+import DuelArena from "./pages/DuelArena.tsx";
 import Navbar from "./components/Navbar.tsx";
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="/profile/:id" element={<Profile />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/forge-lab" element={<ForgeLab />} />
+            <Route path="/duel" element={<DuelArena />} />
           </Routes>
         </main>
       </div>

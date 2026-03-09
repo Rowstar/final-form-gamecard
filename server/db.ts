@@ -138,6 +138,29 @@ export function setupDb() {
   try {
     db.exec(`ALTER TABLE cards ADD COLUMN remix_chip_selections TEXT`);
   } catch (e) { }
+
+  // V2 Architecture: Lineage, Evolution, and Spec metadata
+  try { db.exec(`ALTER TABLE cards ADD COLUMN card_spec_json TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN root_card_id TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN version_number INTEGER DEFAULT 1`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN generation_type TEXT DEFAULT 'forge'`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN prompt_base TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN prompt_modifiers TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN generation_settings TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN source_image_url TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN preserved_traits_json TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN changed_traits_json TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN variation_strength TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN consistency_mode TEXT`); } catch (e) { }
+
+  // Phase 2: Controlled Evolution & Trust
+  try { db.exec(`ALTER TABLE cards ADD COLUMN is_featured_version BOOLEAN DEFAULT 0`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN generation_delta TEXT`); } catch (e) { }
+
+  // Phase 3: Social Mythology & Shareable Identity
+  try { db.exec(`ALTER TABLE cards ADD COLUMN is_public BOOLEAN DEFAULT 0`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN rival_id TEXT`); } catch (e) { }
+  try { db.exec(`ALTER TABLE cards ADD COLUMN duo_id TEXT`); } catch (e) { }
 }
 
 export default db;

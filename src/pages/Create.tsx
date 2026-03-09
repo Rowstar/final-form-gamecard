@@ -356,88 +356,92 @@ export default function Create() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Legendary */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+                    {/* Legendary Toggle */}
                     <button
                       onClick={() => { soundManager.playSound('sfx_ui_click'); setCardType('legendary') }}
-                      className={`p-5 rounded-3xl border text-left transition-all relative overflow-hidden group ${cardType === 'legendary'
-                        ? "bg-zinc-800 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/50"
+                      className={`p-4 rounded-2xl border transition-all flex flex-col items-center justify-center text-center gap-2 relative overflow-hidden group ${cardType === 'legendary'
+                        ? "bg-zinc-800 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/50"
                         : "bg-zinc-950/80 border-white/5 hover:border-white/20 hover:bg-zinc-900"
                         }`}
                     >
-                      <div className="flex justify-between items-start mb-2">
-                        <div className={`font-black tracking-tight text-lg flex items-center gap-2 ${cardType === 'legendary' ? "text-emerald-400" : "text-zinc-300 group-hover:text-white"}`}>
-                          Legendary Artifact
-                        </div>
-                        {cardType === 'legendary' && (
-                          <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
-                            <div className="w-2 h-2 rounded-full bg-zinc-900" />
-                          </div>
-                        )}
+                      <div className={`font-black tracking-tight text-lg ${cardType === 'legendary' ? "text-emerald-400" : "text-zinc-300 group-hover:text-white"}`}>
+                        Legendary
                       </div>
-                      <p className={`text-[13px] font-medium leading-relaxed ${cardType === 'legendary' ? "text-zinc-300" : "text-zinc-500 group-hover:text-zinc-400"}`}>
-                        Standard Forge. Premium legendary-quality portrait. Beautiful, polished, and share-worthy result. Best for most creations.
-                      </p>
-                      <div className={`mt-4 text-[10px] font-black uppercase tracking-widest ${cardType === 'legendary' ? 'text-emerald-400/80' : 'text-zinc-600'}`}>
+                      <div className={`text-[10px] font-black uppercase tracking-widest ${cardType === 'legendary' ? 'text-emerald-500' : 'text-zinc-600 group-hover:text-zinc-500'}`}>
                         Standard / Free
                       </div>
                     </button>
 
-                    {/* Mythic */}
+                    {/* Mythic Toggle */}
                     <button
                       onClick={() => { soundManager.playSound('sfx_ui_click'); setCardType('mythic') }}
                       disabled={!user || user.credits < 1}
-                      className={`p-5 rounded-3xl border text-left transition-all relative overflow-hidden group ${cardType === 'mythic'
-                        ? "bg-amber-500/10 border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.2)] ring-1 ring-amber-500/50"
+                      className={`p-4 rounded-2xl border transition-all flex flex-col items-center justify-center text-center gap-2 relative overflow-hidden group ${cardType === 'mythic'
+                        ? "bg-amber-500/10 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.2)] ring-1 ring-amber-500/50"
                         : "bg-zinc-950/80 border-white/5 hover:border-white/20 hover:bg-zinc-900"
-                        } ${(!user || user.credits < 1) ? "opacity-50 cursor-not-allowed" : ""}`}
+                        } ${(!user || user.credits < 1) ? "opacity-50 cursor-not-allowed grayscale" : ""}`}
                     >
-                      {cardType === 'mythic' && <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/20 blur-[40px] rounded-full" />}
-                      <div className="relative z-10 flex justify-between items-start mb-2">
-                        <div className={`font-black tracking-tight text-lg flex items-center gap-2 ${cardType === 'mythic' ? "text-amber-400 drop-shadow-md" : "text-amber-400/70"}`}>
-                          Guaranteed Mythic
-                        </div>
-                        {cardType === 'mythic' && (
-                          <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
-                            <div className="w-2 h-2 rounded-full bg-zinc-900" />
-                          </div>
-                        )}
+                      {cardType === 'mythic' && <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/20 blur-[30px] rounded-full" />}
+                      <div className={`relative z-10 font-black tracking-tight text-lg flex items-center gap-1.5 ${cardType === 'mythic' ? "text-amber-400 drop-shadow-md" : "text-amber-400/70 group-hover:text-amber-400"}`}>
+                        Mythic <Crown size={14} className={cardType === 'mythic' ? 'text-amber-400' : 'text-amber-400/50'} />
                       </div>
-                      <p className={`relative z-10 text-[13px] font-medium leading-relaxed ${cardType === 'mythic' ? "text-amber-100" : "text-zinc-500"}`}>
-                        Ultimate refinement. Highest polish, luxury frame integration, and deepest detailing. Guaranteed mythic-quality collector output.
-                      </p>
-                      <div className={`relative z-10 mt-4 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${cardType === 'mythic' ? 'text-amber-500' : 'text-amber-500/50'}`}>
-                        <Crown size={12} /> Costs 1 Credit
+                      <div className={`relative z-10 text-[10px] font-black uppercase tracking-widest flex items-center gap-1 ${cardType === 'mythic' ? 'text-amber-500' : 'text-amber-500/50 group-hover:text-amber-500/70'}`}>
+                        1 Credit
                       </div>
                     </button>
 
-                    {/* Final Boss */}
+                    {/* Final Boss Toggle */}
                     <button
                       onClick={() => { soundManager.playSound('sfx_ui_click'); setCardType('final_boss') }}
                       disabled={!user || user.credits < 1}
-                      className={`p-5 rounded-3xl border text-left transition-all relative overflow-hidden group ${cardType === 'final_boss'
-                        ? "bg-red-500/10 border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.25)] ring-1 ring-red-500/50"
+                      className={`p-4 rounded-2xl border transition-all flex flex-col items-center justify-center text-center gap-2 relative overflow-hidden group ${cardType === 'final_boss'
+                        ? "bg-red-500/10 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.25)] ring-1 ring-red-500/50"
                         : "bg-zinc-950/80 border-white/5 hover:border-white/20 hover:bg-zinc-900"
-                        } ${(!user || user.credits < 1) ? "opacity-50 cursor-not-allowed" : ""}`}
+                        } ${(!user || user.credits < 1) ? "opacity-50 cursor-not-allowed grayscale" : ""}`}
                     >
-                      {cardType === 'final_boss' && <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/20 blur-[40px] rounded-full" />}
-                      <div className="relative z-10 flex justify-between items-start mb-2">
-                        <div className={`font-black tracking-tight text-lg flex items-center gap-2 ${cardType === 'final_boss' ? "text-red-400 drop-shadow-md" : "text-red-400/70"}`}>
-                          Final Boss Protocol
-                        </div>
-                        {cardType === 'final_boss' && (
-                          <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center shrink-0">
-                            <div className="w-2 h-2 rounded-full bg-zinc-900" />
-                          </div>
-                        )}
+                      {cardType === 'final_boss' && <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/20 blur-[30px] rounded-full" />}
+                      <div className={`relative z-10 font-black tracking-tight text-lg flex items-center gap-1.5 ${cardType === 'final_boss' ? "text-red-400 drop-shadow-md" : "text-red-400/70 group-hover:text-red-400"}`}>
+                        Final Boss <Zap size={14} className={cardType === 'final_boss' ? 'text-red-400' : 'text-red-400/50'} />
                       </div>
-                      <p className={`relative z-10 text-[13px] font-medium leading-relaxed ${cardType === 'final_boss' ? "text-red-100" : "text-zinc-500"}`}>
-                        Mythic quality plus boss styling. Maximum spectacle, menace, dominance, and final-phase endgame authority.
-                      </p>
-                      <div className={`relative z-10 mt-4 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${cardType === 'final_boss' ? 'text-red-400' : 'text-red-400/50'}`}>
-                        <Crown size={12} /> Costs 1 Credit
+                      <div className={`relative z-10 text-[10px] font-black uppercase tracking-widest flex items-center gap-1 ${cardType === 'final_boss' ? 'text-red-400' : 'text-red-400/50 group-hover:text-red-400/70'}`}>
+                        1 Credit
                       </div>
                     </button>
+                  </div>
+
+                  {/* Extended Info Panel */}
+                  <div className="bg-zinc-950/40 border border-white/5 rounded-2xl p-6 min-h-[120px] shadow-inner">
+                    {cardType === 'legendary' && (
+                      <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                        <h4 className="text-emerald-400 font-bold text-lg mb-2 flex items-center gap-2">
+                          <Wand2 size={18} /> Legendary Artifact
+                        </h4>
+                        <p className="text-zinc-400 text-sm leading-relaxed font-medium">
+                          Standard Forge. Premium legendary-quality portrait. Beautiful, polished, and share-worthy result. Best for most creations.
+                        </p>
+                      </motion.div>
+                    )}
+                    {cardType === 'mythic' && (
+                      <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                        <h4 className="text-amber-400 font-bold text-lg mb-2 flex items-center gap-2">
+                          <Crown size={18} /> Guaranteed Mythic
+                        </h4>
+                        <p className="text-zinc-400 text-sm leading-relaxed font-medium">
+                          Ultimate refinement. Highest polish, luxury frame integration, and deepest detailing. Guaranteed mythic-quality collector output.
+                        </p>
+                      </motion.div>
+                    )}
+                    {cardType === 'final_boss' && (
+                      <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                        <h4 className="text-red-400 font-bold text-lg mb-2 flex items-center gap-2">
+                          <Zap size={18} /> Final Boss Protocol
+                        </h4>
+                        <p className="text-zinc-400 text-sm leading-relaxed font-medium">
+                          Mythic quality plus boss styling. Maximum spectacle, menace, dominance, and final-phase endgame authority.
+                        </p>
+                      </motion.div>
+                    )}
                   </div>
                 </div>
 

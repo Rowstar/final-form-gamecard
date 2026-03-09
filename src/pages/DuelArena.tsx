@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
+import { useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth } from "../lib/api";
 import Card from "../components/Card";
 import { motion, AnimatePresence } from "motion/react";
-import { Copy, Sparkles, Swords, ChevronLeft, Check, FastForward } from "lucide-react";
+import { Copy, Sparkles, Swords, ChevronLeft, Check, FastForward, Download } from "lucide-react";
+import * as htmlToImage from "html-to-image";
 import { soundManager } from "../lib/soundManager";
 import { DuelResult, resolveDuel } from "../lib/duelResolver";
 
@@ -14,7 +16,30 @@ export default function DuelArena() {
     const [fighter2, setFighter2] = useState<any | null>(null);
     const [result, setResult] = useState<DuelResult | null>(null);
     const [copied, setCopied] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const navigate = useNavigate();
+    const posterRef = useRef<HTMLDivElement>(null);
+
+    const handleExportMatch = async () => {
+        if (!posterRef.current) return;
+        setExporting(true);
+        soundManager.playSound('sfx_ui_click', { volume: 0.5 });
+        try {
+            await new Promise(r => setTimeout(r, 500));
+            const dataUrl = await htmlToImage.toPng(posterRef.current, { quality: 1.0, pixelRatio: 2 });
+            const link = document.createElement("a");
+            const safeName1 = fighter1?.identity?.replace(/[^a-zA-Z0-9]/g, "") || "Fighter1";
+            const safeName2 = fighter2?.identity?.replace(/[^a-zA-Z0-9]/g, "") || "Fighter2";
+            link.download = `Versus_${safeName1}_VS_${safeName2}.png`;
+            link.href = dataUrl;
+            link.click();
+        } catch (err) {
+            console.error("Export failed:", err);
+            alert("Failed to export match result.");
+        } finally {
+            setExporting(false);
+        }
+    };
 
     useEffect(() => {
         fetchWithAuth("/cards/my-cards")
@@ -178,25 +203,76 @@ export default function DuelArena() {
                 ) : (
                     <motion.div key="result" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-4xl mx-auto space-y-8">
 
-                        {/* Winner Banner */}
-                        <div className="bg-zinc-900/60 border border-emerald-500/20 rounded-3xl p-8 relative overflow-hidden flex flex-col md:flex-row items-center gap-8 shadow-[0_0_40px_rgba(16,185,129,0.1)]">
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-[80px]" />
-                            <div className="w-full md:w-64 shrink-0 shadow-[0_0_30px_rgba(0,0,0,0.8)] rounded-xl overflow-hidden relative z-10">
-                                <Card card={result.winnerCard} />
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-2xl font-black uppercase tracking-widest text-zinc-300">Match Concluded</h2>
+                            <button
+                                onClick={handleExportMatch}
+                                disabled={exporting}
+                                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                            >
+                                {exporting ? <Sparkles className="animate-spin" size={16} /> : <Download size={16} />}
+                                {exporting ? 'Rendering...' : 'Export Poster'}
+                            </button>
+                        </div>
+
+                        {/* Premium Shareable Poster Container */}
+                        <div
+                            ref={posterRef}
+                            className="bg-black border border-white/5 rounded-3xl overflow-hidden relative flex flex-col shadow-[0_30px_100px_rgba(0,0,0,1)]"
+                            style={{ minHeight: '800px' }}
+                        >
+                            {/* Dramatic Split Background */}
+                            <div className="absolute inset-0 flex">
+                                <div className="w-1/2 h-full opacity-30 select-none">
+                                    <img src={`/api${fighter1.image_url}`} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(30px) saturate(0.5)' }} />
+                                </div>
+                                <div className="w-1/2 h-full opacity-30 select-none">
+                                    <img src={`/api${fighter2.image_url}`} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(30px) saturate(0.5)' }} />
+                                </div>
                             </div>
-                            <div className="flex-1 relative z-10 text-center md:text-left">
-                                <div className="inline-block text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 mb-3">
-                                    Match Concluded
+                            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+
+                            {/* Versus Presentation */}
+                            <div className="relative z-10 p-12 flex flex-col items-center flex-1">
+                                <div className="text-center mb-8 bg-black/60 backdrop-blur-md border border-white/10 px-8 py-2 rounded-full">
+                                    <p className="font-black text-zinc-400 uppercase tracking-[0.5em] text-sm">Official Duel Result</p>
                                 </div>
-                                <h2 className="text-4xl lg:text-5xl font-black text-white italic tracking-tight mb-2 drop-shadow-md">
-                                    {result.winnerCard.identity} Wins
+
+                                <div className="flex justify-center items-center gap-8 w-full">
+                                    <div className={`w-[280px] transition-all duration-1000 ${result.winnerCard.id === fighter1.id ? 'scale-110 z-20 shadow-[0_0_50px_rgba(255,255,255,0.2)]' : 'scale-90 opacity-70 grayscale-[0.3]'}`}>
+                                        {result.winnerCard.id === fighter1.id && (
+                                            <div className="absolute -top-6 inset-x-0 flex justify-center z-30">
+                                                <div className="bg-amber-500 text-black font-black uppercase tracking-widest px-4 py-1 rounded shadow-[0_0_20px_rgba(245,158,11,0.5)]">Victor</div>
+                                            </div>
+                                        )}
+                                        <Card card={fighter1} isReveal={false} motionEnabled={false} />
+                                    </div>
+
+                                    <div className="flex-shrink-0 flex items-center justify-center -my-4 md:my-0 h-24 w-24 relative z-30">
+                                        <div className="bg-red-500/90 text-black font-black text-5xl italic w-24 h-24 rounded-full flex items-center justify-center border-4 border-black shadow-[0_0_30px_rgba(239,68,68,0.5)]">VS</div>
+                                    </div>
+
+                                    <div className={`w-[280px] transition-all duration-1000 ${result.winnerCard.id === fighter2.id ? 'scale-110 z-20 shadow-[0_0_50px_rgba(255,255,255,0.2)]' : 'scale-90 opacity-70 grayscale-[0.3]'}`}>
+                                        {result.winnerCard.id === fighter2.id && (
+                                            <div className="absolute -top-6 inset-x-0 flex justify-center z-30">
+                                                <div className="bg-amber-500 text-black font-black uppercase tracking-widest px-4 py-1 rounded shadow-[0_0_20px_rgba(245,158,11,0.5)]">Victor</div>
+                                            </div>
+                                        )}
+                                        <Card card={fighter2} isReveal={false} motionEnabled={false} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Match Summary Block */}
+                            <div className="relative z-10 bg-black/80 backdrop-blur-xl border-t border-white/10 p-10 flex flex-col items-center text-center mt-auto">
+                                <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-4">
+                                    {result.winnerCard.identity} <span className="text-zinc-500 font-medium">Takes the Victory</span>
                                 </h2>
-                                <div className="text-zinc-500 font-bold uppercase tracking-widest text-sm mb-6 flex items-center justify-center md:justify-start gap-2">
-                                    Prediction Accuracy: <span className={result.confidence === 'High' ? 'text-emerald-400' : result.confidence === 'Medium' ? 'text-amber-400' : 'text-red-400'}>{result.confidence}</span>
+                                <div className="text-emerald-400 font-bold uppercase tracking-widest text-xs mb-4 flex items-center justify-center gap-2">
+                                    Final Prediction Confidence: <span className="bg-emerald-500/20 px-2 py-0.5 rounded">{result.confidence}</span>
                                 </div>
-                                <div className="bg-black/40 border border-white/5 rounded-2xl p-6 relative">
-                                    <div className="absolute -top-3 -left-3 text-4xl text-zinc-700 font-serif opacity-50">"</div>
-                                    <p className="text-zinc-300 md:text-lg leading-relaxed italic relative z-10">{result.summary}</p>
+                                <div className="max-w-2xl">
+                                    <p className="text-zinc-400 text-lg leading-relaxed italic">"{result.summary}"</p>
                                 </div>
                             </div>
                         </div>

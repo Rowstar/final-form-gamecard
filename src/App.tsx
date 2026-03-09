@@ -13,6 +13,8 @@ import Profile from "./pages/Profile.tsx";
 import Auth from "./pages/Auth.tsx";
 import ForgeLab from "./pages/ForgeLab.tsx";
 import DuelArena from "./pages/DuelArena.tsx";
+import PublicCard from "./pages/PublicCard.tsx";
+import PublicLineage from "./pages/PublicLineage.tsx";
 import Navbar from "./components/Navbar.tsx";
 
 export default function App() {
@@ -46,6 +48,8 @@ export default function App() {
             <Route path="/auth" element={<Auth />} />
             <Route path="/forge-lab" element={<ForgeLab />} />
             <Route path="/duel" element={<DuelArena />} />
+            <Route path="/share/card/:id" element={<PublicCard />} />
+            <Route path="/share/lineage/:id" element={<PublicLineage />} />
           </Routes>
         </main>
       </div>

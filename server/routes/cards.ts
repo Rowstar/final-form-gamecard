@@ -61,6 +61,40 @@ function getTierPrompt(style: string) {
   return "- Already premium, polished, attractive. Strong finish. Controlled spectacle.";
 }
 
+// Phase 2: Legacy Spec Reconstruction Helper
+function reconstructSpecFromLegacyCard(card: any): any {
+  if (card.card_spec_json) {
+    try {
+      return JSON.parse(card.card_spec_json);
+    } catch (e) { }
+  }
+
+  let stats: any = {};
+  if (card.stats) {
+    stats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats;
+  }
+
+  return {
+    name: card.identity,
+    formBase: card.animal_base,
+    formTitle: card.strengths,
+    energyCore: card.energy_core,
+    archetype: card.archetype,
+    palette: card.palette,
+    poseVariant: card.pose_variant,
+    composition: card.composition,
+    ultimateAbility: {
+      name: card.ultimate_title || "",
+      description: card.signature_move || ""
+    },
+    stats: stats.rpgStats || {},
+    passives: stats.passives || [],
+    weakness: stats.weakness || "",
+    resistances: stats.resistances || "",
+    guidanceLine: stats.guidanceLine || ""
+  };
+}
+
 router.post("/generate", authenticate, async (req: any, res: any) => {
   try {
     const { theme, traits, intent, cardType, displayOptions, photo, artStyle, customText, gender, exaggeration, humor } = req.body || {};
@@ -287,69 +321,75 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
       inputs: { theme, gender, traits, intent, cardType, artStyle, customText }
     };
 
+    let imagePrompt = "";
     // Generate Image using Gemini
     try {
       // Rebuild conditional text block
       const options = displayOptions || { stats: false, ultimate: false, passives: false, resistances: false, quote: false, weapon: false };
 
-      let textSystemPrompt = `TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):\n`;
-      textSystemPrompt += `[CARD NAME – dominant epic cinematic font]: ${cardData.name}\n`;
-      textSystemPrompt += `[SUBTITLE – below name, sleek font]: ${cardData.formTitle}\n`;
+      let textSystemPrompt = `TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):\n`;
+      if (cardType === "final_boss") {
+        textSystemPrompt += `Top Center Label (prominent, glowing, epic typography at the very top of the card): "EPIC FINAL BOSS"\n`;
+      }
+      textSystemPrompt += `Character Name (render in dominant epic cinematic font): "${cardData.name}"\n`;
+      textSystemPrompt += `Subtitle (render below name in sleek font): "${cardData.formTitle}"\n`;
 
       if (options.ultimate) {
-        textSystemPrompt += `[WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:\n`;
+        textSystemPrompt += `Ultimate Ability Info Box (wide centered across bottom edge):\n`;
         if (customText?.ultimate?.trim()) {
-          textSystemPrompt += `[Header]: ${customText.ultimate}\n[Description Text]: ${cardData.ultimateAbility?.description || 'A devastating signature power.'}\n`;
+          textSystemPrompt += `Ability Name: "${customText.ultimate}"\nAbility Description: "${cardData.ultimateAbility?.description || 'A devastating signature power.'}"\n`;
         } else if (cardData.ultimateAbility) {
-          textSystemPrompt += `[Header]: ${cardData.ultimateAbility.name}\n[Description Text]: ${cardData.ultimateAbility.description}\n`;
+          textSystemPrompt += `Ability Name: "${cardData.ultimateAbility.name}"\nAbility Description: "${cardData.ultimateAbility.description}"\n`;
         }
       }
 
       if (options.weapon) {
         if (customText?.weapon?.trim()) {
-          textSystemPrompt += `[WEAPON DISPLAY LABEL - sleek font above stats]: Weapon: ${customText.weapon}\n`;
+          textSystemPrompt += `Weapon Label (sleek font above stats): "Weapon: ${customText.weapon}"\n`;
         } else if (cardData.signatureWeapon) {
-          textSystemPrompt += `[WEAPON DISPLAY LABEL - sleek font above stats]: Weapon: ${cardData.signatureWeapon}\n`;
+          textSystemPrompt += `Weapon Label (sleek font above stats): "Weapon: ${cardData.signatureWeapon}"\n`;
         }
       }
 
       if (options.stats) {
         if (customText?.stats?.trim()) {
-          textSystemPrompt += `[COMBAT STATS GRID]: ${customText.stats}\n`;
+          textSystemPrompt += `Combat Stats Grid: "${customText.stats}"\n`;
         } else if (cardData.stats) {
-          textSystemPrompt += `[COMBAT STATS GRID - 6 small structured UI meters/numbers]: Power ${cardData.stats.Power}, Speed ${cardData.stats.Speed}, Defense ${cardData.stats.Defense}, Intel ${cardData.stats.Intelligence}, Aura ${cardData.stats.Presence}, Energy ${cardData.stats.Energy}\n`;
+          textSystemPrompt += `Combat Stats Grid (6 small structured UI numbers): "Power ${cardData.stats.Power}, Speed ${cardData.stats.Speed}, Defense ${cardData.stats.Defense}, Intel ${cardData.stats.Intelligence}, Aura ${cardData.stats.Presence}, Energy ${cardData.stats.Energy}"\n`;
         }
       }
 
       if (options.passives) {
         if (customText?.passives?.trim()) {
-          textSystemPrompt += `[PASSIVES - compact bullet list]: ${customText.passives}\n`;
+          textSystemPrompt += `Passives (compact bullet list): "${customText.passives}"\n`;
         } else if (cardData.passives && cardData.passives.length > 0) {
-          textSystemPrompt += `[PASSIVES - compact bullet list]: ${cardData.passives.join(" • ")}\n`;
+          textSystemPrompt += `Passives (compact bullet list): "${cardData.passives.join(" • ")}"\n`;
         }
       }
 
       if (options.resistances) {
         if (customText?.resistances?.trim()) {
-          textSystemPrompt += `[AFFINITIES]: ${customText.resistances}\n`;
+          textSystemPrompt += `Affinities: "${customText.resistances}"\n`;
         } else if (cardData.resistances || cardData.weakness) {
-          textSystemPrompt += `[AFFINITIES]: `;
+          textSystemPrompt += `Affinities: "`;
           if (cardData.resistances) textSystemPrompt += `Resists ${cardData.resistances} `;
-          if (cardData.weakness) textSystemPrompt += `| Weak to ${cardData.weakness}\n`;
+          if (cardData.weakness) textSystemPrompt += `| Weak to ${cardData.weakness}`;
+          textSystemPrompt += `"\n`;
         }
       }
 
       if (options.quote) {
         if (customText?.quote?.trim()) {
-          textSystemPrompt += `[Flavor Text / Quote – italics at the very bottom]: "${customText.quote}"\n`;
+          textSystemPrompt += `Flavor Text Quote (italics at very bottom): "${customText.quote}"\n`;
         } else if (cardData.guidanceLine) {
-          textSystemPrompt += `[Flavor Text / Quote – italics at the very bottom]: "${cardData.guidanceLine}"\n`;
+          textSystemPrompt += `Flavor Text Quote (italics at very bottom): "${cardData.guidanceLine}"\n`;
         }
       }
 
+
       const bossPromptDirective = cardType === "final_boss" ? "FINAL BOSS PROTOCOL ENABLED: Maximum visual intimidation, dramatic dominance, and apex-being endgame authority. Create a spectacular, menacing, and iconic final-phase silhouette. Strip away standard borders, make the character violently break out of the frame geometry." : "";
 
-      const imagePrompt = `A premium, full-art game trading card featuring an Ultimate/Final Form Character.
+      imagePrompt = `A premium, full-art game trading card featuring an Ultimate/Final Form Character.
 Theme: ${(traits || []).join(", ") || "Epic"}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
 Art Style Direction: ${artStyle || "Premium Digital Art"}.
 Exaggeration Scale: ${exaggeration || 5}/10. ${exaggeration >= 8 ? "PROPORTIONS AND ENERGY SHOULD BE ABSURDLY MASSIVE AND GOD-TIER." : "Keep proportions somewhat grounded."}
@@ -427,8 +467,8 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
 
     // Save card
     db.prepare(`
-      INSERT INTO cards (id, user_id, image_url, identity, strengths, signature_move, weakness, stats, border_id, border_lock_mode, tier, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash, is_premium)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO cards (id, user_id, image_url, identity, strengths, signature_move, weakness, stats, border_id, border_lock_mode, tier, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash, is_premium, card_spec_json, root_card_id, version_number, generation_type, prompt_base)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       cardId,
       req.user.id,
@@ -452,7 +492,12 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       cardData.composition || "",
       cardData.ultimateAbility?.name || "",
       dnaHash,
-      isPremium ? 1 : 0
+      isPremium ? 1 : 0,
+      JSON.stringify(cardData), // card_spec_json
+      cardId, // root_card_id
+      1, // version_number
+      'forge', // generation_type
+      imagePrompt // prompt_base
     );
 
     res.json({ id: cardId, shortId: shortId });
@@ -571,6 +616,75 @@ router.get("/user/:userId", (req: any, res: any) => {
   }
 });
 
+// Phase 3: Public Endpoints
+router.get("/public/:id", (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const card = db.prepare("SELECT * FROM cards WHERE (short_id = ? OR id = ?) AND is_public = 1").get(cardId, cardId) as any;
+    if (!card) return res.status(404).json({ error: "Card not found or is private" });
+
+    // Parse stats
+    try { card.stats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats; } catch (e) { }
+    if (card.legendary_data) { try { card.legendary_data = typeof card.legendary_data === 'string' ? JSON.parse(card.legendary_data) : card.legendary_data; } catch (e) { } }
+    if (card.custom_text_overrides) { try { card.custom_text_overrides = typeof card.custom_text_overrides === 'string' ? JSON.parse(card.custom_text_overrides) : card.custom_text_overrides; } catch (e) { } }
+    card.formBase = card.animal_base;
+    card.formTitle = card.strengths;
+
+    // Fetch rival/duo details if requested
+    const relationships: any = {};
+    if (card.rival_id) {
+      const rival = db.prepare("SELECT * FROM cards WHERE id = ?").get(card.rival_id) as any;
+      if (rival && rival.is_public) {
+        try { rival.stats = typeof rival.stats === 'string' ? JSON.parse(rival.stats) : rival.stats; } catch (e) { }
+        relationships.rival = rival;
+      }
+    }
+    if (card.duo_id) {
+      const duo = db.prepare("SELECT * FROM cards WHERE id = ?").get(card.duo_id) as any;
+      if (duo && duo.is_public) {
+        try { duo.stats = typeof duo.stats === 'string' ? JSON.parse(duo.stats) : duo.stats; } catch (e) { }
+        relationships.duo = duo;
+      }
+    }
+
+    res.json({ card, relationships });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/public/:id/lineage", (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    // Check if the requested card exists and is public
+    const card = db.prepare("SELECT * FROM cards WHERE (short_id = ? OR id = ?) AND is_public = 1").get(cardId, cardId) as any;
+    if (!card) return res.status(404).json({ error: "Card not found or is private" });
+
+    const rootId = card.root_card_id || card.id;
+
+    // We only return variants that are public
+    const variants = db.prepare(`
+      SELECT * FROM cards 
+      WHERE (root_card_id = ? OR id = ?) AND is_public = 1
+      ORDER BY version_number ASC, created_at ASC
+    `).all(rootId, rootId) as any[];
+
+    const parsedVariants = variants.map(v => {
+      try { v.stats = typeof v.stats === 'string' ? JSON.parse(v.stats) : v.stats; } catch (e) { }
+      v.formBase = v.animal_base;
+      v.formTitle = v.strengths;
+      if (v.generation_delta) {
+        try { v.generation_delta = typeof v.generation_delta === 'string' ? JSON.parse(v.generation_delta) : v.generation_delta; } catch (e) { }
+      }
+      return v;
+    });
+
+    res.json({ variants: parsedVariants, rootId });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/:id", (req: any, res: any) => {
   try {
     const card = db.prepare("SELECT * FROM cards WHERE id = ? OR short_id = ?").get(req.params.id, req.params.id) as any;
@@ -596,7 +710,125 @@ router.get("/:id", (req: any, res: any) => {
     }
     card.formBase = card.animal_base;
     card.formTitle = card.strengths;
-    res.json({ card });
+
+    // Fetch rival/duo details if requested
+    const relationships: any = {};
+    if (card.rival_id) {
+      const rival = db.prepare("SELECT * FROM cards WHERE id = ?").get(card.rival_id) as any;
+      if (rival) {
+        try { rival.stats = typeof rival.stats === 'string' ? JSON.parse(rival.stats) : rival.stats; } catch (e) { }
+        relationships.rival = rival;
+      }
+    }
+    if (card.duo_id) {
+      const duo = db.prepare("SELECT * FROM cards WHERE id = ?").get(card.duo_id) as any;
+      if (duo) {
+        try { duo.stats = typeof duo.stats === 'string' ? JSON.parse(duo.stats) : duo.stats; } catch (e) { }
+        relationships.duo = duo;
+      }
+    }
+
+    res.json({ card, relationships });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Phase 2: Fetch Lineage
+router.get("/:id/lineage", (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const card = db.prepare("SELECT * FROM cards WHERE id = ? OR short_id = ?").get(cardId, cardId) as any;
+    if (!card) return res.status(404).json({ error: "Card not found" });
+
+    const rootId = card.root_card_id || card.id;
+
+    const variants = db.prepare(`
+      SELECT * FROM cards 
+      WHERE root_card_id = ? OR id = ?
+      ORDER BY version_number ASC, created_at ASC
+    `).all(rootId, rootId) as any[];
+
+    const parsedVariants = variants.map(v => {
+      try { v.stats = typeof v.stats === 'string' ? JSON.parse(v.stats) : v.stats; } catch (e) { }
+      v.formBase = v.animal_base;
+      v.formTitle = v.strengths;
+      if (v.generation_delta) {
+        try { v.generation_delta = typeof v.generation_delta === 'string' ? JSON.parse(v.generation_delta) : v.generation_delta; } catch (e) { }
+      }
+      return v;
+    });
+
+    res.json({ variants: parsedVariants, rootId });
+  } catch (error) {
+    console.error("Lineage fetch error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Phase 2: Set Featured Version in Lineage
+router.post("/:id/feature", authenticate, (req: any, res: any) => {
+  try {
+    const cardId = req.params.id;
+    const userId = req.user.id;
+
+    const card = db.prepare("SELECT * FROM cards WHERE (id = ? OR short_id = ?) AND user_id = ?").get(cardId, cardId, userId) as any;
+    if (!card) return res.status(404).json({ error: "Card not found or unauthorized" });
+
+    const rootId = card.root_card_id || card.id;
+
+    db.exec("BEGIN TRANSACTION");
+    try {
+      // Clear featured flag for all cards in this lineage
+      db.prepare("UPDATE cards SET is_featured_version = 0 WHERE (root_card_id = ? OR id = ?) AND user_id = ?").run(rootId, rootId, userId);
+      // Set featured flag exclusively for this card
+      db.prepare("UPDATE cards SET is_featured_version = 1 WHERE id = ?").run(card.id);
+      db.exec("COMMIT");
+      res.json({ success: true, featuredCardId: card.id });
+    } catch (e: any) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  } catch (error) {
+    console.error("Feature card error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Phase 3: Visibility and Relationships
+router.post("/:id/visibility", authenticate, (req: any, res: any) => {
+  try {
+    const { is_public } = req.body;
+    const cardId = req.params.id;
+    const userId = req.user.id;
+    const info = db.prepare("UPDATE cards SET is_public = ? WHERE (short_id = ? OR id = ?) AND user_id = ?").run(is_public ? 1 : 0, cardId, cardId, userId);
+    if (info.changes === 0) return res.status(404).json({ error: "Card not found or unauthorized" });
+    res.json({ success: true, is_public: !!is_public });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/:id/relationships", authenticate, (req: any, res: any) => {
+  try {
+    const { rival_id, duo_id } = req.body;
+    const cardId = req.params.id;
+    const userId = req.user.id;
+
+    // Validate that the linked cards also belong to the user (if provided)
+    if (rival_id) {
+      const rival = db.prepare("SELECT id FROM cards WHERE id = ? AND user_id = ?").get(rival_id, userId);
+      if (!rival) return res.status(400).json({ error: "Invalid rival ID" });
+    }
+    if (duo_id) {
+      const duo = db.prepare("SELECT id FROM cards WHERE id = ? AND user_id = ?").get(duo_id, userId);
+      if (!duo) return res.status(400).json({ error: "Invalid duo ID" });
+    }
+
+    const info = db.prepare("UPDATE cards SET rival_id = ?, duo_id = ? WHERE (short_id = ? OR id = ?) AND user_id = ?").run(rival_id || null, duo_id || null, cardId, cardId, userId);
+    if (info.changes === 0) return res.status(404).json({ error: "Card not found or unauthorized" });
+
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });
   }
@@ -849,13 +1081,13 @@ AESTHETIC STYLE LOCK (${aestheticStyle} tier):
 ${getTierPrompt(aestheticStyle)}
 - Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
-TEXT SYSTEM (Must be generated inside the image itself, embedded natively into the lower third card layout panel):
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the lower third card layout panel. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):
 Required layout hierarchy:
-[NAME – dominant epic serif font]: ${aiData.name}
-[SUBTITLE – refined technical sans serif]: ${aiData.formTitle}
-[ULTIMATE ABILITY – small caps header]: ${aiData.ultimateAbility?.name || ''}
-[Ability Description – clean legible text]: ${aiData.ultimateAbility?.description || ''}
-[Guidance Line – short italic typography at the very bottom]: ${aiData.guidanceLine || ''}
+Character Name (dominant epic serif font): "${aiData.name}"
+Subtitle (refined technical sans serif): "${aiData.formTitle}"
+Ultimate Ability Name (small caps header): "${aiData.ultimateAbility?.name || ''}"
+Ability Description (clean legible text): "${aiData.ultimateAbility?.description || ''}"
+Guidance Line (short italic typography at the very bottom): "${aiData.guidanceLine || ''}"
 
 - Print the Card ID prominently: ${shortId}
 - Treat it like a genuine card serial number stamped into the border.
@@ -1143,7 +1375,13 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
   try {
     const cardId = req.params.id;
     const userId = req.user.id;
-    const { instructions, mode = "visual", chips = [] } = req.body;
+    const {
+      instructions,
+      mode = "visual",
+      chips = [],
+      preservationLocks = [],
+      variationStrength = "Subtle"
+    } = req.body;
 
     const card = db.prepare("SELECT * FROM cards WHERE id = ? AND user_id = ?").get(cardId, userId) as any;
     if (!card) {
@@ -1156,8 +1394,9 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
       return res.status(400).json({ error: `Not enough credits. ${cost} credits required.` });
     }
 
-    if (card.tier === 'mythic' && mode !== "ascend") {
-      return res.status(400).json({ error: "This card is already Mythic and cannot be remixed through the standard flow." });
+    // Allow Mythic cards to be remixed only through proper mythic evolution modes.
+    if (card.tier === 'mythic' && !["ascend", "refine_mythic", "bossify_mythic", "corrupt_mythic", "echo_variant"].includes(mode)) {
+      return res.status(400).json({ error: "Mythic cards require controlled mythic reforge modes." });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -1172,6 +1411,49 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
       originalStats = typeof card.stats === 'string' ? JSON.parse(card.stats) : card.stats;
     } catch (e) {
       console.warn("Failed to parse original stats for remix", e);
+    }
+
+    // Fallback or read spec
+    let parentSpec: any = {};
+    if (card.card_spec_json) {
+      try {
+        parentSpec = JSON.parse(card.card_spec_json);
+      } catch (e) { }
+    } else {
+      parentSpec = {
+        name: card.identity,
+        formBase: card.animal_base,
+        formTitle: card.strengths,
+        energyCore: card.energy_core,
+        archetype: card.archetype,
+        palette: card.palette,
+        poseVariant: card.pose_variant,
+        composition: card.composition,
+        ultimateAbility: {
+          name: card.ultimate_title || "",
+          description: card.signature_move || ""
+        },
+        stats: originalStats.rpgStats || {},
+        passives: originalStats.passives || [],
+        weakness: originalStats.weakness || "",
+        resistances: originalStats.resistances || "",
+        guidanceLine: originalStats.guidanceLine || ""
+      };
+    }
+
+    let driftInstruction = "";
+    if (variationStrength === "Subtle") driftInstruction = "Strictly minimal deviation. Make only requested changes.";
+    if (variationStrength === "Moderate") driftInstruction = "Balanced variation. Allow slight stylistic drift but remain highly recognizable.";
+    if (variationStrength === "Strong") driftInstruction = "Expressive variation. Core identity remains, but visual forms can shift significantly.";
+    if (variationStrength === "Wild") driftInstruction = "Transformative variation. Completely reimagine the character while keeping only the bare essence.";
+
+    if (mode === 'ascend') {
+      driftInstruction = "Mythic Ascension. Do not generate a different person, merely ascend them to the ultimate top-tier quality.";
+    } else if (['refine_mythic', 'bossify_mythic', 'corrupt_mythic', 'echo_variant'].includes(mode)) {
+      if (variationStrength === "Wild") {
+        return res.status(400).json({ error: "Wild variation is too unstable for Mythic artifacts. Use Subtle or Moderate." });
+      }
+      driftInstruction = "Mythic Reforge. Extremely strict preservation. Maintain the same identity, facial likeness, structure, and mythic rarity tier. DO NOT downgrade.";
     }
 
     let aiData: any = {};
@@ -1189,30 +1471,41 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
       borderId = "obsidian_prism";
     }
 
-    if (mode === "ascend") {
+    if (mode === "ascend" || ['refine_mythic', 'bossify_mythic', 'corrupt_mythic', 'echo_variant'].includes(mode)) {
       aestheticStyle = "mythic";
-      borderId = "obsidian_prism";
+      if (!card.border_id || card.border_id === 'emerald_royal') {
+        borderId = "obsidian_prism"; // Default to premium for mythics if unspecified
+      } else {
+        borderId = card.border_id; // Keep their customized mythic border
+      }
     }
+
+    let generationPrompt = "";
 
     while (attempts < maxAttempts && !success) {
       attempts++;
 
-      const prompt = `
+      generationPrompt = `
         This is a remix/reforge of an existing Final Form card. 
-        Preserve the same core character identity, visual continuity, and likeness. 
-        ${mode === 'ascend' ? 'This is a pure Mythic Ascension. Do not generate a different person, merely ascend them to the ultimate top-tier quality.' : 'Keep all strong successful aspects unless the user explicitly requests changes.'}
-        Apply only the requested refinements. The result should feel like an upgraded or revised version of the same character, not a completely new person.
+        Preserve the same core character identity, visual continuity, and premium collectible card look.
+        ${driftInstruction}
 
-        ORIGINAL CHARACTER DATA:
-        - Name: ${card.identity}
-        - Form Base/Title: ${card.animal_base} / ${card.strengths}
-        - Energy Core: ${card.energy_core}
-        - Archetype: ${card.archetype}
-        - Pose/Composition: ${card.pose_variant} / ${card.composition}
-        - Ultimate: ${card.ultimate_title}
+        ORIGINAL CHARACTER SPEC (JSON):
+        ${JSON.stringify(parentSpec, null, 2)}
 
-        REMIX INSTRUCTIONS:
-        - Mode: ${mode} (${mode === 'visual' ? 'Change presentation, keep lore' : mode === 'character' ? 'Evolve lore and styling' : 'Push everything harder, larger scale, final boss energy'})
+        PRESERVATION LOCKS (MUST NOT CHANGE):
+        ${preservationLocks.length > 0 ? preservationLocks.join(", ") : "None specified."}
+
+        REMIX INSTRUCTIONS (DELTAS):
+        - Mode: ${mode} (${mode === 'visual' ? 'Change presentation, keep lore' :
+          mode === 'character' ? 'Evolve lore and styling' :
+            mode === 'boss' ? 'Push everything harder, larger scale, final boss energy' :
+              mode === 'ascend' ? 'Maximum mythic upgrade' :
+                mode === 'refine_mythic' ? 'Subtle improvement, cleaner coherence, reading typography polish' :
+                  mode === 'bossify_mythic' ? 'Increase dominance, threat, heavy mythic intimidation' :
+                    mode === 'corrupt_mythic' ? 'Introduce dark mythic branch energy, fallen grandeur' :
+                      mode === 'echo_variant' ? 'Alternate but highly recognizable premium branch' : ''
+        })
         - Selected Quick Chips: ${chips.join(', ') || 'None'}
         - User Custom Request: "${instructions || 'Just enhance and polish the overall design.'}"
 
@@ -1230,6 +1523,10 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
             "name": "string (Ability name)",
             "description": "string (Ability description)"
           },
+          "stats": { "Power": "integer", "Speed": "integer", "Defense": "integer", "Intelligence": "integer", "Presence": "integer", "Energy": "integer" },
+          "passives": ["string"],
+          "weakness": "string",
+          "resistances": "string",
           "guidanceLine": "string (Flavor text)"
         }
       `;
@@ -1238,7 +1535,7 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
       try {
         response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: prompt,
+          contents: generationPrompt,
           config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -1323,17 +1620,22 @@ AESTHETIC STYLE LOCK (${aestheticStyle} tier):
 ${getTierPrompt(aestheticStyle)}
 - Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
-TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):
-[CARD NAME – dominant epic cinematic font]: ${aiData.name}
-[SUBTITLE – below name, sleek font]: ${aiData.formTitle}
-[WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:
-[Header]: ${aiData.ultimateAbility?.name || ''}
-[Description Text]: ${aiData.ultimateAbility?.description || ''}
-[Flavor Text / Quote – italics at the very bottom]: "${aiData.guidanceLine || ''}"
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):
+Character Name (dominant epic cinematic font): "${aiData.name}"
+Subtitle (below name, sleek font): "${aiData.formTitle}"
+Ultimate Ability Info Box (wide centered across bottom edge):
+Ability Name: "${aiData.ultimateAbility?.name || ''}"
+Ability Description: "${aiData.ultimateAbility?.description || ''}"
+Flavor Text Quote (italics at the very bottom): "${aiData.guidanceLine || ''}"
 
 No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-premium holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
     } else {
-      imagePrompt = `A premium, full-art game trading card featuring a Remixed/Evolved Character.
+      let subjectLine = "a Remixed/Evolved Character";
+      if (['refine_mythic', 'bossify_mythic', 'corrupt_mythic', 'echo_variant'].includes(mode)) {
+        subjectLine = "a Mythic Reforged Character Branch";
+      }
+
+      imagePrompt = `A premium, full-art game trading card featuring ${subjectLine}.
 Theme: ${aiData.formBase}. Tone: Dramatic, Game-like, Fantasy/Sci-Fi Epic.
 Energy Core (Element): ${aiData.energyCore}.
 Class/Archetype: ${aiData.archetype}.
@@ -1358,13 +1660,13 @@ AESTHETIC STYLE LOCK (${aestheticStyle} tier):
 ${getTierPrompt(aestheticStyle)}
 - Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
-TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels):
-[CARD NAME – dominant epic cinematic font]: ${aiData.name}
-[SUBTITLE – below name, sleek font]: ${aiData.formTitle}
-[WIDE CENTERED ULTIMATE ABILITY INFO BOX - This must span across the bottom edge nicely, do not squish it. Format cleanly]:
-[Header]: ${aiData.ultimateAbility?.name || ''}
-[Description Text]: ${aiData.ultimateAbility?.description || ''}
-[Flavor Text / Quote – italics at the very bottom]: "${aiData.guidanceLine || ''}"
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):
+${mode === 'boss' ? 'Top Center Label (prominent, glowing, epic typography at the very top of the card): "EPIC FINAL BOSS"\\n' : ''}Character Name (dominant epic cinematic font): "${aiData.name}"
+Subtitle (below name, sleek font): "${aiData.formTitle}"
+Ultimate Ability Info Box (wide centered across bottom edge):
+Ability Name: "${aiData.ultimateAbility?.name || ''}"
+Ability Description: "${aiData.ultimateAbility?.description || ''}"
+Flavor Text Quote (italics at the very bottom): "${aiData.guidanceLine || ''}"
 
 No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the character incredible premium rendering quality like an ultra-premium holographic trading card. Design the text layout to be exceptionally clean, legible, and balanced inside the card's dark lower third.`;
     }
@@ -1419,7 +1721,20 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       passives: originalStats.passives || [],
       resistances: originalStats.resistances || "",
       weakness: originalStats.weakness || "",
-      displayOptions: originalStats.displayOptions || { stats: false, ultimate: true, passives: false, resistances: false, quote: true, weapon: false }
+      displayOptions: originalStats.displayOptions || { stats: false, ultimate: true, passives: false, resistances: false, quote: true, weapon: false },
+      inputs: originalStats.inputs || {}
+    };
+
+    const rootCardId = card.root_card_id || cardId;
+    const versionNumber = (card.version_number || 1) + 1;
+
+    const generationDelta = {
+      mode,
+      instructions: instructions || "",
+      chips,
+      preservationLocks,
+      variationStrength,
+      timestamp: new Date().toISOString()
     };
 
     db.prepare(`
@@ -1428,9 +1743,11 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
         tier, border_id, border_lock_mode, editable_unlocked, short_id, verification_hash, 
         animal_base, theme, energy_core, archetype, palette, pose_variant, composition, 
         ultimate_title, dna_hash, is_premium, parent_id, is_remix, remix_mode, 
-        remix_instructions, remix_chip_selections
+        remix_instructions, remix_chip_selections,
+        card_spec_json, root_card_id, version_number, generation_type, prompt_base,
+        preserved_traits_json, variation_strength, consistency_mode, generation_delta
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       newCardId,
       userId,
@@ -1460,7 +1777,16 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       1,
       mode,
       instructions || "",
-      JSON.stringify(chips)
+      JSON.stringify(chips),
+      JSON.stringify(aiData), // card_spec_json
+      rootCardId,
+      versionNumber,
+      mode === 'ascend' ? 'evolution' : 'remix', // generation_type
+      imagePrompt, // prompt_base (for image generation)
+      JSON.stringify(preservationLocks),
+      variationStrength,
+      'strict', // consistency_mode default
+      JSON.stringify(generationDelta) // generation_delta
     );
 
     const txId = uuidv4();

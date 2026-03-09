@@ -3,7 +3,7 @@ import { useNavigate, Link, useParams } from "react-router-dom";
 import { fetchWithAuth, clearAuthToken, API_URL } from "../lib/api.ts";
 import Card from "../components/Card.tsx";
 import { motion } from "motion/react";
-import { LogOut, Sparkles, Zap, Share2, PlusCircle, Swords } from "lucide-react";
+import { LogOut, Sparkles, Zap, Share2, PlusCircle, Swords, Globe } from "lucide-react";
 import { soundManager } from '../lib/soundManager';
 
 export default function Profile() {
@@ -14,6 +14,20 @@ export default function Profile() {
   const [error, setError] = useState("");
   const [isOwner, setIsOwner] = useState(false);
   const navigate = useNavigate();
+
+  // Lineage Filter State
+  const [filterMode, setFilterMode] = useState<'canon' | 'all'>('canon');
+
+  // Compute filtered cards based on lineage
+  const filteredCards = filterMode === 'all'
+    ? cards
+    : cards.filter(c => {
+      if (c.is_featured_version === 1) return true;
+      const isRoot = !c.root_card_id || c.root_card_id === c.id || c.version_number === 1;
+      const rootId = c.root_card_id || c.id;
+      const hasFeaturedSibling = cards.some(sibling => (sibling.root_card_id === rootId || sibling.id === rootId) && sibling.is_featured_version === 1);
+      return isRoot && !hasFeaturedSibling;
+    });
 
   useEffect(() => {
     setLoading(true);
@@ -147,10 +161,29 @@ export default function Profile() {
         </div>
       </div>
 
-      <div className="mb-8 flex justify-between items-end">
-        <div className="flex items-center gap-4">
-          <h2 className="text-xl font-bold">{isOwner ? "Your Collection" : "Collection"}</h2>
-          <span className="text-sm text-zinc-500">{cards.length} Cards</span>
+      <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-bold">{isOwner ? "Your Collection" : "Collection"}</h2>
+            <span className="text-sm text-zinc-500">{filteredCards.length} Cards</span>
+          </div>
+
+          {cards.length > 0 && (
+            <div className="flex bg-zinc-900/80 p-1 rounded-lg border border-white/5 w-fit mt-1">
+              <button
+                onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.2 }); setFilterMode('canon'); }}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${filterMode === 'canon' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                Main Canon
+              </button>
+              <button
+                onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.2 }); setFilterMode('all'); }}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${filterMode === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                All Variants
+              </button>
+            </div>
+          )}
         </div>
         {isOwner && cards.length >= 2 && (
           <Link
@@ -186,18 +219,34 @@ export default function Profile() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-          {cards.map((card, i) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 mt-6">
+          {filteredCards.map((card, i) => (
             <motion.div
               key={card.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
+              className="relative"
             >
+              {card.is_featured_version === 1 && (
+                <div className="absolute -top-3 -right-3 bg-amber-500 text-black px-3 py-1 rounded-full z-10 flex items-center gap-1 shadow-lg font-black text-[10px] uppercase tracking-wider">
+                  Featured
+                </div>
+              )}
+              {card.version_number > 1 && card.is_featured_version !== 1 && (
+                <div className="absolute -top-3 -right-3 bg-zinc-800 text-purple-400 px-3 py-1 rounded-full z-10 flex items-center gap-1 border border-purple-500/30 shadow-lg font-bold text-[10px] uppercase tracking-wider">
+                  Variant v{card.version_number}
+                </div>
+              )}
+              {card.is_public === 1 && (
+                <div title="Publicly Visible" className="absolute top-3 left-3 bg-black/60 backdrop-blur-md text-emerald-400 p-1.5 rounded-full z-10 border border-emerald-500/30 shadow-lg">
+                  <Globe size={14} />
+                </div>
+              )}
               <Link
-                to={`/card/${card.id}`}
+                to={`/card/${card.short_id || card.id}`}
                 onClick={() => soundManager.playSound('sfx_ui_click', { volume: 0.3 })}
-                className="block"
+                className="block transition-transform hover:scale-[1.02]"
               >
                 <Card card={card} />
               </Link>

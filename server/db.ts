@@ -161,6 +161,9 @@ export function setupDb() {
   try { db.exec(`ALTER TABLE cards ADD COLUMN is_public BOOLEAN DEFAULT 0`); } catch (e) { }
   try { db.exec(`ALTER TABLE cards ADD COLUMN rival_id TEXT`); } catch (e) { }
   try { db.exec(`ALTER TABLE cards ADD COLUMN duo_id TEXT`); } catch (e) { }
+
+  // Phase 4: Style Fidelity
+  try { db.exec(`ALTER TABLE cards ADD COLUMN style_fingerprint TEXT`); } catch (e) { }
 }
 
 export default db;

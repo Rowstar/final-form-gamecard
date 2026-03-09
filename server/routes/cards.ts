@@ -91,7 +91,8 @@ function reconstructSpecFromLegacyCard(card: any): any {
     passives: stats.passives || [],
     weakness: stats.weakness || "",
     resistances: stats.resistances || "",
-    guidanceLine: stats.guidanceLine || ""
+    guidanceLine: stats.guidanceLine || "",
+    illustrationStyle: card.style_fingerprint || "Premium fantasy game illustration" // Phase 4
   };
 }
 
@@ -238,6 +239,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
                 palette: { type: Type.STRING },
                 poseVariant: { type: Type.STRING },
                 composition: { type: Type.STRING },
+                illustrationStyle: { type: Type.STRING, description: "The core illustration style family, rendering language, and whimsy/realism level (e.g. 'Stylized anime illustration', 'Epic realistic splash art', 'Cozy storybook fantasy')" },
                 ultimateAbility: {
                   type: Type.OBJECT,
                   properties: {
@@ -263,7 +265,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
                 resistances: { type: Type.STRING },
                 guidanceLine: { type: Type.STRING }
               },
-              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "signatureWeapon", "palette", "poseVariant", "composition", "ultimateAbility", "stats", "passives", "weakness", "resistances", "guidanceLine"]
+              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "signatureWeapon", "palette", "poseVariant", "composition", "illustrationStyle", "ultimateAbility", "stats", "passives", "weakness", "resistances", "guidanceLine"]
             }
           }
         });
@@ -327,7 +329,7 @@ router.post("/generate", authenticate, async (req: any, res: any) => {
       // Rebuild conditional text block
       const options = displayOptions || { stats: false, ultimate: false, passives: false, resistances: false, quote: false, weapon: false };
 
-      let textSystemPrompt = `TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):\n`;
+      let textSystemPrompt = `TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT use placeholders like [CARD NAME]. DO NOT invent bracketed labels. DO NOT display template text or add unintended interface formatting. ONLY render the exact text values provided below, nothing else!):\n`;
       if (cardType === "final_boss") {
         textSystemPrompt += `Top Center Label (prominent, glowing, epic typography at the very top of the card): "EPIC FINAL BOSS"\n`;
       }
@@ -401,6 +403,7 @@ Signature Weapon: ${cardData.signatureWeapon || "Not specified, hands free"}. MA
 Palette: ${cardData.palette}.
 Pose: ${cardData.poseVariant}.
 Composition: ${cardData.composition}.
+Illustration Style Family: ${cardData.illustrationStyle || "Premium Digital Art"}.
 ${facialFeatures ? `Facial Features & Character Likeness (CRITICAL MATCH): ${facialFeatures}\nThe character portrayed MUST heavily resemble this physical facial description.\n` : ""}
 ${bossPromptDirective}
 
@@ -467,8 +470,8 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
 
     // Save card
     db.prepare(`
-      INSERT INTO cards (id, user_id, image_url, identity, strengths, signature_move, weakness, stats, border_id, border_lock_mode, tier, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash, is_premium, card_spec_json, root_card_id, version_number, generation_type, prompt_base)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO cards (id, user_id, image_url, identity, strengths, signature_move, weakness, stats, border_id, border_lock_mode, tier, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash, is_premium, card_spec_json, root_card_id, version_number, generation_type, prompt_base, style_fingerprint)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       cardId,
       req.user.id,
@@ -497,7 +500,8 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       cardId, // root_card_id
       1, // version_number
       'forge', // generation_type
-      imagePrompt // prompt_base
+      imagePrompt, // prompt_base
+      cardData.illustrationStyle || "" // style_fingerprint
     );
 
     res.json({ id: cardId, shortId: shortId });
@@ -947,6 +951,7 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
             "palette": "string (The primary color dominance)",
             "poseVariant": "string (The pose variant)",
             "composition": "string (Must be one of: 'Centered floating', 'Dynamic action pose', 'Intimidating low angle', 'Heroic standing')",
+            "illustrationStyle": "string (The core illustration style family, rendering language, and whimsy/realism level)",
             "ultimateAbility": {
               "name": "string (A breathtaking title for this ultimate power)",
               "description": "string (A dramatic combat/lore description explaining the devastating or empowering effect.)"
@@ -970,6 +975,7 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
             "palette": "string (The primary color dominance)",
             "poseVariant": "string (The pose variant)",
             "composition": "string (Must be one of: 'Centered floating', 'Dynamic action pose', 'Intimidating low angle', 'Heroic standing')",
+            "illustrationStyle": "string (The core illustration style family, rendering language, and whimsy/realism level)",
             "ultimateAbility": {
               "name": "string (A breathtaking title for this ultimate power)",
               "description": "string (A dramatic combat/lore description explaining the devastating or empowering effect.)"
@@ -997,6 +1003,7 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
                 palette: { type: Type.STRING },
                 poseVariant: { type: Type.STRING },
                 composition: { type: Type.STRING },
+                illustrationStyle: { type: Type.STRING },
                 ultimateAbility: {
                   type: Type.OBJECT,
                   properties: {
@@ -1007,7 +1014,7 @@ router.post("/forge", authenticate, async (req: any, res: any) => {
                 },
                 guidanceLine: { type: Type.STRING }
               },
-              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
+              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "palette", "poseVariant", "composition", "illustrationStyle", "ultimateAbility", "guidanceLine"]
             }
           }
         });
@@ -1068,6 +1075,7 @@ Energy Core: ${aiData.energyCore}.
 Palette: ${aiData.palette}.
 Pose Variant: ${aiData.poseVariant}.
 Composition: ${aiData.composition}.
+Illustration Style Family: ${aiData.illustrationStyle}.
 
 STRICT CARD GENERATION RULES:
 - Strict vertical 2:3 portrait format.
@@ -1081,7 +1089,7 @@ AESTHETIC STYLE LOCK (${aestheticStyle} tier):
 ${getTierPrompt(aestheticStyle)}
 - Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
-TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the lower third card layout panel. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the lower third card layout panel. IMPORTANT: DO NOT use placeholders like [CARD NAME]. DO NOT invent bracketed labels. DO NOT display template text or add unintended interface formatting. ONLY render the exact text values provided below, nothing else!):
 Required layout hierarchy:
 Character Name (dominant epic serif font): "${aiData.name}"
 Subtitle (refined technical sans serif): "${aiData.formTitle}"
@@ -1136,8 +1144,8 @@ The output must look like a premium collectible card, engineered, authoritative,
     const verificationHash = crypto.createHash('sha256').update(JSON.stringify(aiData) + shortId).digest('hex');
 
     db.prepare(`
-      INSERT INTO cards (id, user_id, identity, strengths, weakness, signature_move, image_url, stats, tier, border_id, border_lock_mode, editable_unlocked, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO cards (id, user_id, identity, strengths, weakness, signature_move, image_url, stats, tier, border_id, border_lock_mode, editable_unlocked, short_id, verification_hash, animal_base, theme, energy_core, archetype, palette, pose_variant, composition, ultimate_title, dna_hash, style_fingerprint)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       newCardId,
       userId,
@@ -1161,7 +1169,8 @@ The output must look like a premium collectible card, engineered, authoritative,
       aiData.poseVariant || "",
       aiData.composition || "",
       aiData.ultimateAbility?.name || "",
-      dnaHash
+      dnaHash,
+      aiData.illustrationStyle || ""
     );
 
     // Delete old cards
@@ -1448,7 +1457,7 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
     if (variationStrength === "Wild") driftInstruction = "Transformative variation. Completely reimagine the character while keeping only the bare essence.";
 
     if (mode === 'ascend') {
-      driftInstruction = "Mythic Ascension. Do not generate a different person, merely ascend them to the ultimate top-tier quality.";
+      driftInstruction = "Mythic Ascension. Preserve the SAME visual illustration style family. Do not generate a different person, merely ascend them to the ultimate top-tier quality.";
     } else if (['refine_mythic', 'bossify_mythic', 'corrupt_mythic', 'echo_variant'].includes(mode)) {
       if (variationStrength === "Wild") {
         return res.status(400).json({ error: "Wild variation is too unstable for Mythic artifacts. Use Subtle or Moderate." });
@@ -1519,6 +1528,7 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
           "palette": "string (The primary color dominance)",
           "poseVariant": "string (The pose variant)",
           "composition": "string (Must be one of: 'Centered floating', 'Dynamic action pose', 'Intimidating low angle', 'Heroic standing')",
+          "illustrationStyle": "string (The core illustration style family. Crucial: Evolve within the same aesthetic family unless explicitly requested otherwise)",
           "ultimateAbility": {
             "name": "string (Ability name)",
             "description": "string (Ability description)"
@@ -1549,6 +1559,7 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
                 palette: { type: Type.STRING },
                 poseVariant: { type: Type.STRING },
                 composition: { type: Type.STRING },
+                illustrationStyle: { type: Type.STRING },
                 ultimateAbility: {
                   type: Type.OBJECT,
                   properties: {
@@ -1559,7 +1570,7 @@ router.post("/:id/remix", authenticate, async (req: any, res: any) => {
                 },
                 guidanceLine: { type: Type.STRING }
               },
-              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "palette", "poseVariant", "composition", "ultimateAbility", "guidanceLine"]
+              required: ["name", "formBase", "formTitle", "energyCore", "archetype", "palette", "poseVariant", "composition", "illustrationStyle", "ultimateAbility", "guidanceLine"]
             }
           }
         });
@@ -1601,6 +1612,7 @@ Class/Archetype: ${aiData.archetype}.
 Palette: ${aiData.palette}.
 Pose: ${aiData.poseVariant}.
 Composition: ${aiData.composition}.
+Illustration Style Family: ${aiData.illustrationStyle || parentSpec.illustrationStyle || "Premium Art"}.
 
 ASCENSION DIRECTIVE:
 This is an ascension of an existing Final Form card into a guaranteed Mythic-quality version of the same character.
@@ -1620,7 +1632,7 @@ AESTHETIC STYLE LOCK (${aestheticStyle} tier):
 ${getTierPrompt(aestheticStyle)}
 - Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
-TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT use placeholders like [CARD NAME]. DO NOT invent bracketed labels. DO NOT display template text or add unintended interface formatting. ONLY render the exact text values provided below, nothing else!):
 Character Name (dominant epic cinematic font): "${aiData.name}"
 Subtitle (below name, sleek font): "${aiData.formTitle}"
 Ultimate Ability Info Box (wide centered across bottom edge):
@@ -1642,6 +1654,7 @@ Class/Archetype: ${aiData.archetype}.
 Palette: ${aiData.palette}.
 Pose: ${aiData.poseVariant}.
 Composition: ${aiData.composition}.
+Illustration Style Family: ${aiData.illustrationStyle || parentSpec.illustrationStyle || "Premium Art"}.
 
 REMIX GOAL: ${instructions || 'Enhance and polish'}
 CHIPS APPLIED: ${chips.join(', ')}
@@ -1660,7 +1673,7 @@ AESTHETIC STYLE LOCK (${aestheticStyle} tier):
 ${getTierPrompt(aestheticStyle)}
 - Radiant structural frame. Aura interacts with border. Emergent energy inside card. Subtle glossy sheen overlay. Dimensional pressure effects.
 
-TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT render any of the instructional labels like "Name:", "Subtitle:", or bracketed text. ONLY render the actual values provided!):
+TEXT SYSTEM (CRITICAL: All requested text must be generated inside the image itself, embedded natively into the card's framing layout. Treat this exactly like rendering a physical trading card with text printed into the bottom frame panels. IMPORTANT: DO NOT use placeholders like [CARD NAME]. DO NOT invent bracketed labels. DO NOT display template text or add unintended interface formatting. ONLY render the exact text values provided below, nothing else!):
 ${mode === 'boss' ? 'Top Center Label (prominent, glowing, epic typography at the very top of the card): "EPIC FINAL BOSS"\\n' : ''}Character Name (dominant epic cinematic font): "${aiData.name}"
 Subtitle (below name, sleek font): "${aiData.formTitle}"
 Ultimate Ability Info Box (wide centered across bottom edge):
@@ -1745,9 +1758,10 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
         ultimate_title, dna_hash, is_premium, parent_id, is_remix, remix_mode, 
         remix_instructions, remix_chip_selections,
         card_spec_json, root_card_id, version_number, generation_type, prompt_base,
-        preserved_traits_json, variation_strength, consistency_mode, generation_delta
+        preserved_traits_json, variation_strength, consistency_mode, generation_delta,
+        style_fingerprint
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       newCardId,
       userId,
@@ -1786,7 +1800,8 @@ No messy anatomy, no extra limbs, ensure a clear, powerful silhouette. Give the 
       JSON.stringify(preservationLocks),
       variationStrength,
       'strict', // consistency_mode default
-      JSON.stringify(generationDelta) // generation_delta
+      JSON.stringify(generationDelta), // generation_delta
+      aiData.illustrationStyle || "" // style_fingerprint
     );
 
     const txId = uuidv4();

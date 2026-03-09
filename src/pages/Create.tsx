@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL, getAuthToken, fetchWithAuth } from "../lib/api.ts";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowRight, Sparkles, Zap, X, ChevronDown, ChevronUp, Crown, Wand2 } from "lucide-react";
+import { ArrowRight, Sparkles, Zap, X, ChevronDown, ChevronUp, Crown, Wand2, Eye } from "lucide-react";
 import { soundManager } from "../lib/soundManager";
 
 export default function Create() {
@@ -308,16 +308,17 @@ export default function Create() {
         <div className="lg:hidden w-full sticky top-4 z-40 bg-zinc-900/95 backdrop-blur-xl border border-white/5 rounded-2xl p-4 shadow-2xl flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-              <Sparkles size={18} className="text-emerald-400" />
+              <Eye size={18} className="text-emerald-400" />
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs text-zinc-500 font-bold uppercase tracking-wider mb-0.5">Assembling</p>
+              <p className="text-[10px] text-emerald-400/80 font-bold uppercase tracking-wider mb-0.5 flex items-center gap-1"><Sparkles size={10} /> Live Preview</p>
               <p className="font-bold text-white text-sm truncate w-48">{formData.theme || "Unnamed Artifact"}</p>
             </div>
           </div>
-          <div className="text-right">
-            <span className="text-xs font-bold bg-white/5 text-zinc-400 px-2 py-1 rounded-md border border-white/10 uppercase">
-              Step {step}/3
+          <div className="text-right flex flex-col items-end">
+            <span className="text-[10px] font-bold text-zinc-500 uppercase">Updating</span>
+            <span className="text-xs font-bold bg-white/5 text-zinc-400 px-2 py-1 rounded-md border border-white/10 uppercase mt-0.5">
+              Step {step}/4
             </span>
           </div>
         </div>
@@ -327,12 +328,13 @@ export default function Create() {
 
           <div className="hidden lg:flex justify-between items-center mb-8">
             <h1 className="text-3xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-500">
-              {step === 1 && "Identity Core"}
-              {step === 2 && "Power & Style"}
-              {step === 3 && "Card Expression"}
+              {step === 1 && "Artifact Class"}
+              {step === 2 && "Identity Core"}
+              {step === 3 && "Power & Style"}
+              {step === 4 && "Card Expression"}
             </h1>
             <div className="text-sm font-bold text-emerald-400 bg-emerald-500/10 px-4 py-1.5 rounded-full border border-emerald-500/20">
-              Step {step} of 3
+              Step {step} of 4
             </div>
           </div>
 
@@ -348,7 +350,7 @@ export default function Create() {
               <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
 
                 {/* 1. Artifact Class Selection */}
-                <div className="mb-10 pb-10 border-b border-white/5">
+                <div className="mb-6">
                   <div className="mb-5">
                     <label className="block text-2xl font-black text-white mb-2 tracking-tight">Step 1: Choose Artifact Class</label>
                     <p className="text-zinc-400 text-sm font-medium leading-relaxed">
@@ -413,7 +415,7 @@ export default function Create() {
                   {/* Extended Info Panel */}
                   <div className="bg-zinc-950/40 border border-white/5 rounded-2xl p-6 min-h-[120px] shadow-inner">
                     {cardType === 'legendary' && (
-                      <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                      <motion.div key="leg" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                         <h4 className="text-emerald-400 font-bold text-lg mb-2 flex items-center gap-2">
                           <Wand2 size={18} /> Legendary Artifact
                         </h4>
@@ -423,7 +425,7 @@ export default function Create() {
                       </motion.div>
                     )}
                     {cardType === 'mythic' && (
-                      <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                      <motion.div key="myth" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                         <h4 className="text-amber-400 font-bold text-lg mb-2 flex items-center gap-2">
                           <Crown size={18} /> Guaranteed Mythic
                         </h4>
@@ -433,7 +435,7 @@ export default function Create() {
                       </motion.div>
                     )}
                     {cardType === 'final_boss' && (
-                      <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                      <motion.div key="boss" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                         <h4 className="text-red-400 font-bold text-lg mb-2 flex items-center gap-2">
                           <Zap size={18} /> Final Boss Protocol
                         </h4>
@@ -444,7 +446,11 @@ export default function Create() {
                     )}
                   </div>
                 </div>
+              </motion.div>
+            )}
 
+            {step === 2 && (
+              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
                 {/* Avatar Core Identity */}
                 <div className="mb-6 space-y-8">
                   <label className="block text-2xl font-black text-white mb-2 tracking-tight">Step 2: Avatar Identity</label>
@@ -517,7 +523,7 @@ export default function Create() {
               </motion.div>
             )}
 
-            {step === 2 && (
+            {step === 3 && (
               <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="space-y-10">
                 <div className="mb-2">
                   <label className="block text-2xl font-black text-white mb-2 tracking-tight">Step 3: Power & Aesthetics</label>
@@ -697,7 +703,7 @@ export default function Create() {
               </motion.div>
             )}
 
-            {step === 3 && (
+            {step === 4 && (
               <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
                 <div className="mb-2">
                   <label className="block text-2xl font-black text-white mb-2 tracking-tight">Step 4: Card Expression</label>
@@ -817,7 +823,7 @@ export default function Create() {
             )}
 
             {/* Step Navigation CTAs */}
-            <div className={`mt-8 flex gap-3 ${step === 3 ? 'pt-8 border-t border-white/5' : ''}`}>
+            <div className={`mt-8 flex gap-3 ${step === 4 ? 'pt-8 border-t border-white/5' : ''}`}>
               {step > 1 && (
                 <button
                   onClick={() => { soundManager.playSound('sfx_ui_click', { volume: 0.3 }); setStep(step - 1); }}
@@ -830,8 +836,8 @@ export default function Create() {
 
               <button
                 onClick={() => {
-                  if (step < 3) {
-                    if (step === 1 && !formData.theme.trim()) {
+                  if (step < 4) {
+                    if (step === 2 && !formData.theme.trim()) {
                       soundManager.playSound('sfx_error', { volume: 0.5 });
                       setError("Please provide an Avatar Name.");
                       return;
@@ -851,7 +857,7 @@ export default function Create() {
               >
                 {loading ? (
                   <div className="w-6 h-6 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
-                ) : step === 3 ? (
+                ) : step === 4 ? (
                   <>
                     Forge Final Form <Wand2 size={20} className="ml-1" />
                   </>
@@ -877,7 +883,13 @@ export default function Create() {
             {cardType === 'mythic' && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-amber-500/10 rounded-full blur-[80px] pointer-events-none" />}
             {cardType === 'final_boss' && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-red-500/10 rounded-full blur-[80px] pointer-events-none" />}
 
-            <h2 className="text-[11px] font-black text-white/30 uppercase tracking-[0.25em] mb-8 border-b border-white/5 pb-4">Artifact Forging</h2>
+            <div className="flex justify-between items-start mb-6 border-b border-white/5 pb-4">
+              <div>
+                <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2"><Eye size={16} className="text-emerald-400" /> Live Artifact Preview</h2>
+                <div className="text-[10px] text-zinc-500 font-bold mt-1">Updates automatically. No input required here.</div>
+              </div>
+              <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md border border-emerald-500/20">Preview Only</span>
+            </div>
 
             <div className="flex flex-col gap-7 relative z-10">
 
